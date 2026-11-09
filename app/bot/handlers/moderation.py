@@ -123,6 +123,15 @@ async def inspect_and_moderate_message(message: types.Message, bot: Bot) -> bool
     if await is_user_admin(bot, chat_id, message.from_user.id):
         return False
 
+    # 1b. 广告白名单用户豁免 (group_whitelist)
+    async with get_db() as db:
+        whitelisted = await db.fetchrow(
+            "SELECT user_id FROM group_whitelist WHERE group_id = ? AND user_id = ?",
+            (chat_id, message.from_user.id),
+        )
+    if whitelisted:
+        return False
+
     content_text = (message.text or message.caption or "").strip()
 
     async with get_db() as db:

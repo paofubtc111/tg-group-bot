@@ -140,3 +140,378 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
 );
+
+-- 13. 广告白名单用户表 (豁免内容安全拦截)
+CREATE TABLE IF NOT EXISTS group_whitelist (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id, user_id),
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 14. 群成员档案表 (成员管理与消息统计)
+CREATE TABLE IF NOT EXISTS group_members (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT DEFAULT '',
+    first_name TEXT DEFAULT '',
+    is_admin BOOLEAN DEFAULT FALSE,
+    message_count INTEGER DEFAULT 0,
+    last_seen TIMESTAMP,
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id, user_id),
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 15. 群消息归档表 (消息管理与消息统计, 仅保留每群最新 500 条)
+CREATE TABLE IF NOT EXISTS group_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT DEFAULT '',
+    text TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_group_messages_group_time ON group_messages(group_id, id DESC);
+
+-- 16. 关键词自动回复表
+CREATE TABLE IF NOT EXISTS keyword_replies (
+    reply_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    keyword TEXT NOT NULL,
+    match_type TEXT DEFAULT 'contains',      -- 'contains', 'exact'
+    reply_text TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 17. 定时发送任务表 (每天 HH:MM, 时区 Asia/Shanghai)
+CREATE TABLE IF NOT EXISTS scheduled_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    send_time TEXT NOT NULL,                 -- 'HH:MM' 24 小时制
+    enabled BOOLEAN DEFAULT TRUE,
+    last_sent_date TEXT,                     -- 最近一次发送日期 'YYYY-MM-DD'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 18. 强制订阅配置表
+CREATE TABLE IF NOT EXISTS group_force_subscribe (
+    group_id INTEGER PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    channel TEXT DEFAULT '',                 -- 频道用户名 (如 @xxx) 或频道 ID
+    prompt_text TEXT DEFAULT '请先加入指定频道后再发言。',
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- ==================== Batch 2: 积分经济 + 抽奖游戏 + 其余模块 ====================
+
+-- 19. 用户积分余额表
+CREATE TABLE IF NOT EXISTS user_points (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    balance INTEGER DEFAULT 0,
+    total_earned INTEGER DEFAULT 0,
+    last_signin_date TEXT,                   -- 最近一次签到日期 'YYYY-MM-DD'
+    signin_streak INTEGER DEFAULT 0,         -- 连续签到天数
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id, user_id),
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 20. 积分变更日志表 (仅保留 30 天, 由后台任务定期清理)
+CREATE TABLE IF NOT EXISTS point_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    delta INTEGER NOT NULL,                  -- 正数=获得, 负数=消费
+    reason TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_point_logs_group_time ON point_logs(group_id, id DESC);
+
+-- 21. 积分获取规则表
+CREATE TABLE IF NOT EXISTS point_rules (
+    rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    trigger_action TEXT NOT NULL,            -- 'first_message' | 'every_message' | 'random_message'
+    points INTEGER NOT NULL DEFAULT 1,
+    chance INTEGER DEFAULT 100,              -- 仅 random_message 使用: 中奖概率 1-100
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 22. 积分系统设置表
+CREATE TABLE IF NOT EXISTS point_settings (
+    group_id INTEGER PRIMARY KEY,
+    alias TEXT DEFAULT '积分',
+    daily_max INTEGER DEFAULT 0,             -- 每人每日发言积分上限, 0=不限
+    decimals BOOLEAN DEFAULT FALSE,          -- 是否显示小数位 (仅展示)
+    auto_clear_inactive BOOLEAN DEFAULT FALSE,
+    signin_points INTEGER DEFAULT 10,        -- 签到奖励积分
+    streak_bonus_points INTEGER DEFAULT 5,   -- 连续签到>=3 天额外奖励
+    enabled BOOLEAN DEFAULT TRUE,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 23. 积分兑换商品表 (用户发送关键词兑换)
+CREATE TABLE IF NOT EXISTS point_redemptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    keyword TEXT NOT NULL,                   -- 兑换关键词 (群内发送即兑换)
+    cost INTEGER NOT NULL DEFAULT 0,         -- 所需积分
+    description TEXT DEFAULT '',
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 24. 积分兑换记录表
+CREATE TABLE IF NOT EXISTS point_redemption_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    redemption_id INTEGER NOT NULL,
+    keyword TEXT DEFAULT '',
+    cost INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 25. 抽奖活动表
+CREATE TABLE IF NOT EXISTS lotteries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    lottery_type TEXT NOT NULL,              -- 'msg_count' | 'msg_rank' | 'signin_count' | 'invite_count' | 'points_scratch' | 'points_timed'
+    title TEXT NOT NULL,
+    keyword TEXT DEFAULT '抽奖',             -- 参与关键字
+    draw_keyword TEXT DEFAULT '开奖',         -- 开奖关键字
+    start_at TEXT,                           -- 活动开始时间 (ISO, 可空)
+    end_at TEXT,                             -- 活动结束时间 (ISO, 可空, 定时开奖用)
+    threshold INTEGER DEFAULT 0,             -- 参与门槛: 发言数 / 排名名次 / 签到天数 / 邀请人数
+    draw_mode TEXT DEFAULT 'full',           -- 'full' 满人开奖 | 'timed' 定时开奖
+    cost_per_draw INTEGER DEFAULT 0,         -- 刮刮乐每次消耗积分
+    max_draws_per_user INTEGER DEFAULT 1,    -- 每人可抽次数 (刮刮乐)
+    status TEXT DEFAULT 'active',            -- 'active' | 'ended'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 26. 抽奖奖品表
+CREATE TABLE IF NOT EXISTS lottery_prizes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lottery_id INTEGER NOT NULL,
+    prize_name TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 1,        -- 奖品总份数
+    drawn INTEGER NOT NULL DEFAULT 0,        -- 已抽出份数
+    FOREIGN KEY(lottery_id) REFERENCES lotteries(id) ON DELETE CASCADE
+);
+
+-- 27. 抽奖参与记录表
+CREATE TABLE IF NOT EXISTS lottery_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lottery_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(lottery_id, user_id),
+    FOREIGN KEY(lottery_id) REFERENCES lotteries(id) ON DELETE CASCADE
+);
+
+-- 28. 抽奖中奖记录表
+CREATE TABLE IF NOT EXISTS lottery_draws (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lottery_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT DEFAULT '',
+    prize_name TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(lottery_id) REFERENCES lotteries(id) ON DELETE CASCADE
+);
+
+-- 28b. 刮刮乐游玩次数记录表 (每次刮算一次, 不受 lottery_entries 唯一约束限制)
+CREATE TABLE IF NOT EXISTS lottery_plays (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lottery_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(lottery_id) REFERENCES lotteries(id) ON DELETE CASCADE
+);
+
+-- 29. 积分竞猜活动表
+CREATE TABLE IF NOT EXISTS guesses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    question TEXT NOT NULL,
+    cost_per_bet INTEGER NOT NULL DEFAULT 10,  -- 每次下注消耗积分
+    odds_mode TEXT DEFAULT 'prize',           -- 'prize' 奖品模式 | 'odds' 赔率模式
+    prize_pool INTEGER DEFAULT 0,             -- 奖品模式: 获胜者平分奖池
+    prize_amount INTEGER DEFAULT 0,           -- 奖品模式: 每位获胜者固定奖金 (优先于奖池平分, 0=用奖池平分)
+    status TEXT DEFAULT 'active',             -- 'active' | 'closed'
+    winning_option_id INTEGER,                -- 中奖选项 ID
+    posted_message_id INTEGER,                -- 已发布的竞猜消息 ID
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 30. 竞猜选项表
+CREATE TABLE IF NOT EXISTS guess_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guess_id INTEGER NOT NULL,
+    option_text TEXT NOT NULL,
+    odds REAL DEFAULT 2.0,                   -- 赔率模式: 该选项赔率
+    FOREIGN KEY(guess_id) REFERENCES guesses(id) ON DELETE CASCADE
+);
+
+-- 31. 竞猜下注记录表
+CREATE TABLE IF NOT EXISTS guess_bets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guess_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT DEFAULT '',
+    option_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL DEFAULT 0,       -- 下注积分
+    paid_out INTEGER DEFAULT 0,              -- 已派发奖金 (0=未派发)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(guess_id) REFERENCES guesses(id) ON DELETE CASCADE
+);
+
+-- 32. 积分骰子游戏设置表
+CREATE TABLE IF NOT EXISTS dice_settings (
+    group_id INTEGER PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    cost_per_round INTEGER DEFAULT 10,       -- 每局消耗积分
+    payout_multiplier REAL DEFAULT 2.0,      -- 获胜赔付倍数
+    house_cut_percent INTEGER DEFAULT 0,     -- 系统抽成百分比 (仅记录展示)
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 33. 积分骰子游戏记录表
+CREATE TABLE IF NOT EXISTS dice_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    username TEXT DEFAULT '',
+    cost INTEGER NOT NULL DEFAULT 0,
+    user_roll INTEGER DEFAULT 0,
+    bot_roll INTEGER DEFAULT 0,
+    result TEXT DEFAULT 'lose',              -- 'win' | 'lose' | 'draw'
+    payout INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 34. 轮播广告表
+CREATE TABLE IF NOT EXISTS rotating_ads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    image_url TEXT DEFAULT '',
+    link_url TEXT DEFAULT '',
+    text TEXT DEFAULT '',                    -- 广告文案 (无图时使用)
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 35. 轮播广告设置表
+CREATE TABLE IF NOT EXISTS rotating_ads_settings (
+    group_id INTEGER PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    interval_minutes INTEGER DEFAULT 60,     -- 轮播间隔 (分钟)
+    display_seconds INTEGER DEFAULT 0,       -- 广告展示时长 (秒, 0=不自动删除)
+    last_ad_index INTEGER DEFAULT -1,        -- 上次发送的广告下标 (轮询用)
+    last_post_at TEXT,                       -- 上次发送时间 (ISO)
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 36. 邀请记录表
+CREATE TABLE IF NOT EXISTS invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    inviter_id INTEGER,                      -- 邀请人 (邀请链接创建者, 未知时为 NULL)
+    invited_id INTEGER NOT NULL,             -- 被邀请入群者
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(group_id, invited_id),
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 37. 定时关群任务表 (每天 HH:MM-HH:MM 窗口内全员禁言)
+CREATE TABLE IF NOT EXISTS scheduled_lockdowns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    start_time TEXT NOT NULL,                -- 'HH:MM'
+    end_time TEXT NOT NULL,                  -- 'HH:MM'
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 38. 话术关群关键词表
+CREATE TABLE IF NOT EXISTS lockdown_keywords (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    keyword TEXT NOT NULL,
+    lock_minutes INTEGER DEFAULT 30,         -- 触发后锁群时长 (分钟)
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 39. 群锁群状态表 (定时关群/话术关群的锁状态, 与紧急模式互不干扰)
+CREATE TABLE IF NOT EXISTS group_lock_state (
+    group_id INTEGER PRIMARY KEY,
+    locked BOOLEAN DEFAULT FALSE,
+    source TEXT DEFAULT '',                  -- 'schedule' | 'keyword'
+    locked_until TEXT,                       -- 关键词锁的到期时间 (ISO)
+    schedule_id INTEGER,                     -- 定时关群任务 ID
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 40. 退群拉黑开关表
+CREATE TABLE IF NOT EXISTS group_leave_ban (
+    group_id INTEGER PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 41. 用户改名监控开关表
+CREATE TABLE IF NOT EXISTS group_rename_watch (
+    group_id INTEGER PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 42. 群底部按钮表 (群内发送"广告"弹出)
+CREATE TABLE IF NOT EXISTS bottom_buttons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    button_text TEXT NOT NULL,
+    reply_text TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 43. 其他设置表 (自动删除服务消息 / 计算器 / 自动查U)
+CREATE TABLE IF NOT EXISTS group_misc_settings (
+    group_id INTEGER PRIMARY KEY,
+    auto_delete_join BOOLEAN DEFAULT TRUE,       -- 自动删除进群消息
+    auto_delete_leave BOOLEAN DEFAULT TRUE,      -- 自动删除退群消息
+    auto_delete_pinned_notice BOOLEAN DEFAULT TRUE,  -- 自动删除置顶提示消息
+    auto_delete_promotion BOOLEAN DEFAULT FALSE, -- 自动删除互推消息
+    cancel_channel_pin BOOLEAN DEFAULT FALSE,    -- 取消频道消息置顶
+    calculator BOOLEAN DEFAULT FALSE,            -- 计算器 (群内发送算式返回结果)
+    auto_check_u BOOLEAN DEFAULT FALSE,          -- 自动查U (发送 TRC20 地址查询余额)
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);

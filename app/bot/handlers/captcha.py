@@ -17,6 +17,10 @@ from aiogram.types import (
     User,
 )
 
+from app.bot.handlers.group_features import (
+    enforce_force_subscribe,
+    track_member_join,
+)
 from app.bot.handlers.welcome import trigger_welcome
 from app.database.db import ensure_group_initialized, get_db, record_audit_log
 
@@ -146,6 +150,14 @@ async def handle_new_member_join(bot: Bot, chat_id: int, chat_title: str, user: 
         return
 
     await ensure_group_initialized(chat_id, chat_title or f"Group {chat_id}")
+
+    # 登记入群成员档案
+    await track_member_join(chat_id, user)
+
+    # 强制订阅关卡: 未订阅指定频道者禁言并提示, 跳过后续验证/欢迎流程,
+    # 待其点击「我已加入」并通过核查后重新进入本流程。
+    if await enforce_force_subscribe(bot, chat_id, user):
+        return
 
     async with get_db() as db:
         emergency = await db.fetchrow(
@@ -315,6 +327,19 @@ async def _verification_timeout_worker(
 async def on_user_join_chat_member(event: ChatMemberUpdated, bot: Bot) -> None:
     if event.chat.type not in ("group", "supergroup"):
         return
+    # 邀请关系记录 (邀请链接创建者即邀请人；无链接时 inviter 为空)
+    try:
+        from app.bot.handlers.group_features import record_invite
+
+        inviter_id = None
+        link = event.invite_link
+        if link and link.creator:
+            inviter_id = link.creator.id
+        await record_invite(
+            event.chat.id, inviter_id, event.new_chat_member.user.id
+        )
+    except Exception:
+        pass
     await handle_new_member_join(
         bot, event.chat.id, event.chat.title or "", event.new_chat_member.user
     )
@@ -389,6 +414,14 @@ async def on_captcha_callback(query: CallbackQuery, bot: Bot) -> None:
         task.cancel()
 
     await query.answer("✅ 验证通过，欢迎入群！", show_alert=False)
+
+    await record_audit_log(
+        group_id,
+        target_user_id,
+        query.from_user.full_name or "新成员",
+        "captcha_passed",
+        f"用户 {target_user_id} 通过入群验证",
+    )
 
     # 恢复用户正常发言权限
     try:

@@ -156,10 +156,17 @@ async def ensure_group_initialized(
                 "INSERT INTO group_settings (group_id, group_title, is_active) VALUES (?, ?, 1)",
                 (group_id, group_title),
             )
-        else:
+        elif group_title != "未命名群组":
+            # 仅当调用方传入了真实群名时才覆盖标题；API 端点传入默认
+            # "未命名群组" 时不得抹掉中间件已写入的真实群名。
             await db.execute(
                 "UPDATE group_settings SET group_title = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
                 (group_title, group_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE group_settings SET updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
+                (group_id,),
             )
 
         # 获取默认模板 ID
@@ -187,6 +194,31 @@ async def ensure_group_initialized(
         )
         await db.execute(
             "INSERT OR IGNORE INTO group_emergency_settings (group_id) VALUES (?)",
+            (group_id,),
+        )
+        # Batch 2: 积分 / 骰子 / 轮播广告 / 退群拉黑 / 改名监控 / 其他设置 (单行配置表)
+        await db.execute(
+            "INSERT OR IGNORE INTO point_settings (group_id) VALUES (?)",
+            (group_id,),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO dice_settings (group_id) VALUES (?)",
+            (group_id,),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO rotating_ads_settings (group_id) VALUES (?)",
+            (group_id,),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO group_leave_ban (group_id) VALUES (?)",
+            (group_id,),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO group_rename_watch (group_id) VALUES (?)",
+            (group_id,),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO group_misc_settings (group_id) VALUES (?)",
             (group_id,),
         )
 
