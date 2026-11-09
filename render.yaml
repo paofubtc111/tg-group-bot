@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: tg-group-bot
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBAPP_BASE_URL
+        value: https://tg-group-bot.onrender.com

@@ -1,0 +1,1877 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>TG 群管与本地大模型交互中枢 - Mini App 控制面板</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+          },
+          colors: {
+            tg: {
+              bg: '#0f172a',
+              card: '#1e293b',
+              hover: '#334155',
+              accent: '#38bdf8',
+              primary: '#0284c7',
+              border: '#334155'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+      background-color: #0b1120;
+      color: #f1f5f9;
+      padding-bottom: 96px;
+    }
+    .glass-header {
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .glass-bottom {
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .tg-bubble {
+      background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+  </style>
+</head>
+<body class="min-h-screen selection:bg-sky-500 selection:text-white">
+
+  <!-- 顶部固定导航与实时配置搜索栏 -->
+  <header class="sticky top-0 z-30 glass-header border-b border-slate-800/80 px-4 py-3">
+    <div class="max-w-3xl mx-auto">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5">
+          <button id="btn-back-hub" type="button" onclick="navigateToView('hub')" class="hidden items-center justify-center w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20 text-lg font-bold">
+            🛡️
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 id="header-title" class="text-base font-bold tracking-tight text-white">群管与 AI 控制中枢</h1>
+              <span id="conn-mode-badge" class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">初始化中</span>
+            </div>
+            <p id="header-subtitle" class="text-xs text-slate-400">对标 nmBot · 进群网关 · 内容审计 · 本地 Ollama</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btn-refresh-data" type="button" onclick="refreshAllGroupData()" class="px-2.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700/80 flex items-center gap-1 transition" title="同步最新配置">
+            <svg class="w-3.5 h-3.5 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span>刷新</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 实时配置搜索栏 (仅在 Hub 视图展示) -->
+      <div id="search-bar-container" class="mt-3 relative">
+        <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input
+          id="module-search-input"
+          type="text"
+          oninput="handleModuleSearch(this.value)"
+          placeholder="搜索功能模块（如：敏感词、算术验证、欢迎模板、Ollama、锁群、导出）..."
+          class="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 transition"
+        />
+        <button id="btn-clear-search" type="button" onclick="clearModuleSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 text-xs px-1">✕</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主内容容器 -->
+  <main class="max-w-3xl mx-auto px-4 pt-4 space-y-4">
+
+    <!-- ==================== 视图 0: 中枢卡片列表 (8 大功能子入口) ==================== -->
+    <section id="view-hub" class="space-y-4">
+      <!-- 顶部群组运行状态速览条 -->
+      <div class="p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800/90 to-slate-900 border border-slate-700/80 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 font-bold text-sm" id="overview-group-badge">
+            TG
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="overview-group-title" class="text-sm font-semibold text-white">正在加载群组...</span>
+              <span id="overview-lockdown-pill" class="hidden text-[11px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-medium">🔒 全员锁群中</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">
+              群 ID: <code id="overview-group-id" class="text-slate-300 font-mono">-100100001</code> ·
+              当前管理员: <span id="overview-admin-name" class="text-sky-400 font-medium">@Admin</span>
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          <div class="px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
+            敏感词: <strong id="stat-rules-count" class="text-amber-400">0</strong>
+          </div>
+          <div class="px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
+            模板: <strong id="stat-tpl-count" class="text-sky-400">0</strong>
+          </div>
+          <div class="px-2.5 py-1 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-300">
+            警告记录: <strong id="stat-warn-count" class="text-rose-400">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8 大功能子入口网格 -->
+      <div id="hub-cards-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+
+      <!-- 搜索无结果占位 -->
+      <div id="hub-search-empty" class="hidden py-12 text-center rounded-2xl bg-slate-900/50 border border-slate-800">
+        <p class="text-sm text-slate-400">未找到匹配该关键词的配置模块</p>
+        <button type="button" onclick="clearModuleSearch()" class="mt-2 text-xs text-sky-400 hover:underline">重置搜索条件</button>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 1: 🛡️ 消息拦截与审计 (Moderation) ==================== -->
+    <section id="view-moderation" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white flex items-center gap-2">🛡️ 外链、转发与自动警告策略</h2>
+            <p class="text-xs text-slate-400 mt-0.5">管理员（Admin/Creator）发言自动豁免，不触发拦截</p>
+          </div>
+          <button type="button" onclick="saveModerationSettings()" class="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition shadow-md shadow-sky-500/20">
+            保存审计策略
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/90 cursor-pointer">
+            <div>
+              <div class="text-xs font-semibold text-slate-200">拦截 TG 邀请链接</div>
+              <div class="text-[11px] text-slate-400">拦截 t.me / telegram.me</div>
+            </div>
+            <input id="mod-block-tg-links" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/90 cursor-pointer">
+            <div>
+              <div class="text-xs font-semibold text-slate-200">拦截全部外部 URL</div>
+              <div class="text-[11px] text-slate-400">检测 Entity 链接与超链接</div>
+            </div>
+            <input id="mod-block-all-urls" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/90 cursor-pointer">
+            <div>
+              <div class="text-xs font-semibold text-slate-200">拦截频道/他人转发</div>
+              <div class="text-[11px] text-slate-400">检测 forward_origin 转发源</div>
+            </div>
+            <input id="mod-block-forwards" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800/90 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-200">发送违规告警提示</span>
+              <input id="mod-send-warning" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+            </div>
+            <div class="flex items-center justify-between gap-2 pt-1">
+              <span class="text-xs text-slate-400">警告消息销毁倒计时 (TTL 秒)</span>
+              <input id="mod-warning-ttl" type="number" min="0" max="300" class="w-24 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs text-right text-white" />
+            </div>
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800/90 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-slate-200">累计违规封禁阈值 (次)</span>
+              <input id="mod-max-warn" type="number" min="1" max="20" class="w-20 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs text-right text-white" />
+            </div>
+            <div class="flex items-center justify-between gap-2 pt-1">
+              <span class="text-xs text-slate-400">达到阈值执行动作</span>
+              <select id="mod-warn-action" class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
+                <option value="kick">移出群聊 (Kick 可再进)</option>
+                <option value="ban">永久封禁拉黑 (Ban)</option>
+                <option value="mute">禁言 1 小时 (Mute)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 敏感词规则列表与新增 -->
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-bold text-white">🚫 敏感词与正则拦截规则库</h3>
+            <p class="text-xs text-slate-400">支持包含匹配、精确匹配与正则表达式，命中后秒删原消息并按阶梯处罚</p>
+          </div>
+          <button type="button" onclick="toggleBatchKeywordBox()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-sky-400 border border-slate-700 transition">
+            + 批量导入敏感词
+          </button>
+        </div>
+
+        <!-- 批量导入折叠框 -->
+        <div id="batch-keyword-box" class="hidden p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+          <label class="block text-xs text-slate-300 font-medium">批量输入敏感词（每行一个或使用逗号分隔，默认采用包含匹配+撤回消息）：</label>
+          <textarea id="batch-keyword-textarea" rows="3" placeholder="例如：&#10;加薇&#10;免费领币&#10;USDT跑分" class="w-full p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-sky-500"></textarea>
+          <div class="flex justify-end gap-2">
+            <button type="button" onclick="toggleBatchKeywordBox()" class="px-3 py-1 rounded-lg bg-slate-800 text-xs text-slate-300">取消</button>
+            <button type="button" onclick="submitBatchKeywords()" class="px-3 py-1 rounded-lg bg-sky-500 text-slate-950 font-semibold text-xs">确认导入并保存</button>
+          </div>
+        </div>
+
+        <!-- 单条新增表单 -->
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 p-3 rounded-xl bg-slate-950/80 border border-slate-800/80">
+          <input id="new-rule-pattern" type="text" placeholder="输入敏感词或正则表达式 (如: 加微.*[0-9]{5,})" class="sm:col-span-5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" />
+          <select id="new-rule-match" class="sm:col-span-2 px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
+            <option value="contains">包含 (contains)</option>
+            <option value="exact">精确 (exact)</option>
+            <option value="regex">正则 (regex)</option>
+          </select>
+          <select id="new-rule-action" class="sm:col-span-3 px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
+            <option value="delete_only">仅撤回警告 (delete_only)</option>
+            <option value="mute">禁言 1 小时 (mute)</option>
+            <option value="kick">移出群聊 (kick)</option>
+            <option value="ban">永久拉黑 (ban)</option>
+          </select>
+          <button type="button" onclick="addSensitiveRule()" class="sm:col-span-2 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs transition">
+            添加规则
+          </button>
+        </div>
+
+        <!-- 规则列表容器 -->
+        <div id="sensitive-rules-list" class="space-y-2 max-h-80 overflow-y-auto pr-1"></div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 2: 🧩 入群人机验证 (CAPTCHA) ==================== -->
+    <section id="view-captcha" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white">🧩 入群人机验证网关 (CAPTCHA)</h2>
+            <p class="text-xs text-slate-400 mt-0.5">新成员入群立即剥夺发言与媒体权限，验证通过后自动解封并触发欢迎语</p>
+          </div>
+          <button type="button" onclick="saveCaptchaSettings()" class="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition shadow-md shadow-sky-500/20">
+            保存验证配置
+          </button>
+        </div>
+
+        <label class="flex items-center justify-between p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 cursor-pointer">
+          <div>
+            <div class="text-xs font-semibold text-white">启用新成员入群人机验证</div>
+            <div class="text-[11px] text-slate-400">关闭后新成员进群将不设限并直接发送入群欢迎卡片</div>
+          </div>
+          <input id="cap-enabled" type="checkbox" onchange="renderCaptchaPreview()" class="w-4 h-4 accent-sky-500 rounded" />
+        </label>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">验证题型模式</label>
+            <select id="cap-type" onchange="renderCaptchaPreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
+              <option value="math">四则算术验证 (math)</option>
+              <option value="choice">图符 Emoji 匹配 (choice)</option>
+              <option value="click">一键点选确认 (click)</option>
+            </select>
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">作答超时时限 (秒)</label>
+            <input id="cap-timeout" type="number" min="15" max="600" oninput="renderCaptchaPreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" />
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">超时未通过处罚动作</label>
+            <select id="cap-fail-action" onchange="renderCaptchaPreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
+              <option value="kick">踢出群聊 (Kick 可重新申请)</option>
+              <option value="ban">永久封禁拉黑 (Ban)</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+          <div>
+            <div class="text-xs font-semibold text-slate-200">完成或超时后自动删除验证消息</div>
+            <div class="text-[11px] text-slate-400">保持群聊屏幕整洁，防止验证卡片刷屏</div>
+          </div>
+          <input id="cap-auto-delete" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+        </label>
+
+        <!-- 实时 Telegram 验证卡片仿真预览 -->
+        <div class="pt-2">
+          <div class="text-xs font-semibold text-slate-400 mb-2">📱 Telegram 群内验证卡片实时仿真预览：</div>
+          <div id="captcha-live-preview" class="p-4 rounded-2xl tg-bubble space-y-3 text-xs"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 3: 💌 事件消息管理 (Welcome) ==================== -->
+    <section id="view-welcome" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white">💌 入群欢迎与防爆屏生命周期管理</h2>
+            <p class="text-xs text-slate-400 mt-0.5">关联独立消息模板库，支持撤回上一条欢迎语及 TTL 定时销毁</p>
+          </div>
+          <button type="button" onclick="saveWelcomeSettings()" class="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition shadow-md shadow-sky-500/20">
+            保存欢迎设置
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="flex items-center justify-between p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 cursor-pointer">
+            <div>
+              <div class="text-xs font-semibold text-white">启用新成员入群欢迎语</div>
+              <div class="text-[11px] text-slate-400">开启验证时将在验证通过后触发</div>
+            </div>
+            <input id="wel-enabled" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 cursor-pointer">
+            <div>
+              <div class="text-xs font-semibold text-white">防爆屏前置清理 (clean_previous)</div>
+              <div class="text-[11px] text-slate-400">发新欢迎前自动撤回群内上一条欢迎卡片</div>
+            </div>
+            <input id="wel-clean-prev" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-semibold text-slate-200">绑定生效的消息模板</label>
+              <button type="button" onclick="navigateToView('templates')" class="text-[11px] text-sky-400 hover:underline">管理模板库 →</button>
+            </div>
+            <select id="wel-template-select" onchange="renderWelcomePreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white"></select>
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">自动撤回倒计时 TTL (秒，0=不撤回)</label>
+            <input id="wel-delete-ttl" type="number" min="0" max="86400" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" />
+          </div>
+        </div>
+
+        <!-- 欢迎语渲染效果预览 -->
+        <div class="pt-2">
+          <div class="text-xs font-semibold text-slate-400 mb-2">📱 欢迎消息插值渲染实时预览：</div>
+          <div id="welcome-live-preview" class="p-4 rounded-2xl tg-bubble space-y-2 text-xs"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 4: 🤖 智能助手 (Ollama) ==================== -->
+    <section id="view-llm" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white">🤖 本地 Ollama 大语言模型交互配置</h2>
+            <p class="text-xs text-slate-400 mt-0.5">内置 Semaphore(2) 并发排队锁防止爆显存，支持按用户或全群共享记忆</p>
+          </div>
+          <button type="button" onclick="saveLLMSettings()" class="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition shadow-md shadow-sky-500/20">
+            保存 AI 配置
+          </button>
+        </div>
+
+        <label class="flex items-center justify-between p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 cursor-pointer">
+          <div>
+            <div class="text-xs font-semibold text-white">在本群启用本地 Ollama 智能助手</div>
+            <div class="text-[11px] text-slate-400">开启后群成员可通过 @提及、引用回复或关键词前缀唤醒 AI</div>
+          </div>
+          <input id="llm-enabled" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+        </label>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">Ollama 服务端地址 (Base URL)</label>
+            <input id="llm-base-url" type="text" placeholder="http://host.docker.internal:11434" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono" />
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">本地模型名称 (Model Name)</label>
+            <input id="llm-model-name" type="text" placeholder="qwen2.5:7b" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white font-mono" />
+          </div>
+        </div>
+
+        <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+          <label class="block text-xs font-semibold text-slate-200">人设系统提示词 (System Prompt)</label>
+          <textarea id="llm-system-prompt" rows="3" class="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-sky-500"></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+            <span class="text-xs font-medium text-slate-200">@Bot 提及唤醒</span>
+            <input id="llm-trig-mention" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+            <span class="text-xs font-medium text-slate-200">引用 (Reply) 唤醒</span>
+            <input id="llm-trig-reply" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+            <span class="text-xs font-medium text-slate-200">启用多轮上下文记忆</span>
+            <input id="llm-ctx-enabled" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">自定义触发前缀 (逗号分隔)</label>
+            <input id="llm-trig-keywords" type="text" placeholder="ai ,小助手 ,问：" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" />
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">记忆隔离模式</label>
+            <select id="llm-ctx-mode" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
+              <option value="user_isolated">按成员独立隔离 (user_isolated)</option>
+              <option value="shared">全群共享上下文 (shared)</option>
+            </select>
+          </div>
+
+          <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">保留历史轮数 (Context Limit)</label>
+            <input id="llm-ctx-limit" type="number" min="1" max="30" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" />
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+          <span class="text-xs text-slate-400">已存储对话历史记录条数：<strong id="llm-history-count" class="text-sky-400">0</strong> 条</span>
+          <button type="button" onclick="clearLLMHistory()" class="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs transition">
+            🗑️ 清空本群对话记忆
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 5: 📄 消息模板库 (Templates) ==================== -->
+    <section id="view-templates" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white">📄 独立消息模板库</h2>
+            <p class="text-xs text-slate-400 mt-0.5">解耦复用设计，支持图文/动图、HTML 插值占位符与多行内联按钮矩阵</p>
+          </div>
+          <button type="button" onclick="resetTemplateEditor()" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs transition">
+            + 新建空白模板
+          </button>
+        </div>
+
+        <!-- 模板列表 -->
+        <div id="templates-list-container" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+
+        <!-- 模板编辑器 -->
+        <div class="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 id="tpl-editor-heading" class="text-xs font-bold text-sky-400">✏️ 编辑/创建消息模板</h3>
+            <span id="tpl-editing-badge" class="text-[11px] text-slate-400">新建模式</span>
+          </div>
+
+          <input id="tpl-id-hidden" type="hidden" value="" />
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div class="sm:col-span-1">
+              <label class="block text-[11px] text-slate-400 mb-1">模板名称</label>
+              <input id="tpl-name" type="text" placeholder="例如：新手日常欢迎语" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" />
+            </div>
+            <div class="sm:col-span-1">
+              <label class="block text-[11px] text-slate-400 mb-1">媒体附件类型</label>
+              <select id="tpl-media-type" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
+                <option value="none">纯文本 (none)</option>
+                <option value="photo">图片 (photo)</option>
+                <option value="animation">动图 GIF (animation)</option>
+              </select>
+            </div>
+            <div class="sm:col-span-1">
+              <label class="block text-[11px] text-slate-400 mb-1">媒体 URL 或 TG file_id</label>
+              <input id="tpl-media-source" type="text" placeholder="https://... 或留空" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white" />
+            </div>
+          </div>
+
+          <div>
+            <div class="flex flex-wrap items-center justify-between gap-1 mb-1">
+              <label class="text-[11px] text-slate-400">模板正文内容 (支持 HTML 标签与点击下方占位符插入)：</label>
+              <div class="flex flex-wrap gap-1">
+                <button type="button" onclick="insertTplVar('{mention}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300 font-mono">{mention}</button>
+                <button type="button" onclick="insertTplVar('{username}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300 font-mono">{username}</button>
+                <button type="button" onclick="insertTplVar('{fullname}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300 font-mono">{fullname}</button>
+                <button type="button" onclick="insertTplVar('{user_id}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300 font-mono">{user_id}</button>
+                <button type="button" onclick="insertTplVar('{group_title}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300 font-mono">{group_title}</button>
+              </div>
+            </div>
+            <textarea id="tpl-content" rows="4" placeholder="欢迎 {mention} 加入 <b>{group_title}</b>！" class="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-sky-500"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-[11px] text-slate-400 mb-1">内联按钮矩阵 JSON (格式: [[{"text":"官网","url":"https://..."}]])</label>
+            <textarea id="tpl-buttons-json" rows="2" class="w-full p-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-sky-500"></textarea>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-1">
+            <button type="button" onclick="saveTemplateItem()" class="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition">
+              💾 保存模板到库
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 6: ⚡ 紧急模式与权限 (Emergency) ==================== -->
+    <section id="view-emergency" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white">⚡ 紧急防爆群模式与管理权限</h2>
+            <p class="text-xs text-slate-400 mt-0.5">遭遇恶意拉人爆群或水军刷屏时，可一键开启全员锁群与自动拒止</p>
+          </div>
+          <button type="button" onclick="saveEmergencySettings()" class="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition">
+            保存紧急策略
+          </button>
+        </div>
+
+        <div class="space-y-3">
+          <label class="flex items-center justify-between p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 cursor-pointer">
+            <div>
+              <div class="text-xs font-bold text-rose-300">🔒 一键防爆群全员禁言锁群 (Lockdown Mode)</div>
+              <div class="text-[11px] text-rose-200/70 mt-0.5">开启后除管理员外全员禁止发言，所有非管理员新消息将被秒删</div>
+            </div>
+            <input id="emg-lockdown" type="checkbox" class="w-4 h-4 accent-rose-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-4 rounded-xl bg-amber-950/25 border border-amber-500/35 cursor-pointer">
+            <div>
+              <div class="text-xs font-bold text-amber-300">🛡️ 防拉人爆群自动移出模式 (Raid Protection)</div>
+              <div class="text-[11px] text-amber-200/70 mt-0.5">开启期间任何新进群账号不经验证直接移出群聊，并记录审计流水</div>
+            </div>
+            <input id="emg-raid" type="checkbox" class="w-4 h-4 accent-amber-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 cursor-pointer">
+            <div>
+              <div class="text-xs font-semibold text-slate-200">允许群成员使用 /admin 或 /report 呼叫管理员</div>
+              <div class="text-[11px] text-slate-400">群内发现违规广告时，普通成员可快速唤醒在线群管</div>
+            </div>
+            <input id="emg-admin-call" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+
+          <label class="flex items-center justify-between p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 cursor-pointer">
+            <div>
+              <div class="text-xs font-semibold text-slate-200">触发 /admin 举报时同步私聊通知管理员</div>
+              <div class="text-[11px] text-slate-400">需管理员曾与本 Bot 建立过私聊会话</div>
+            </div>
+            <input id="emg-notify-dm" type="checkbox" class="w-4 h-4 accent-sky-500 rounded" />
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 7: 📝 操作日志与审计 (Audit Logs) ==================== -->
+    <section id="view-logs" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white">📝 管理员操作与系统拦截审计流水</h2>
+            <p class="text-xs text-slate-400 mt-0.5">实时记录面板参数变更、入群验证超时踢出与敏感词处罚记录</p>
+          </div>
+          <button type="button" onclick="loadAuditLogs()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700">
+            刷新流水
+          </button>
+        </div>
+
+        <div id="audit-logs-container" class="space-y-2 max-h-96 overflow-y-auto pr-1"></div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图 8: 💾 配置导入与导出 (Import / Export) ==================== -->
+    <section id="view-portability" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+        <div class="border-b border-slate-800 pb-3">
+          <h2 class="text-sm font-bold text-white">💾 群组配置一键导出与跨群克隆</h2>
+          <p class="text-xs text-slate-400 mt-0.5">将当前群组的验证、欢迎、敏感词与 Ollama 设定导出为标准 JSON，或一键克隆至新群组</p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button type="button" onclick="exportCurrentGroupJSON()" class="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition">
+            📤 生成当前群组配置 JSON
+          </button>
+          <button type="button" onclick="copyExportedJSON()" class="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition">
+            📋 复制 JSON 到剪贴板
+          </button>
+          <button type="button" onclick="applyImportedJSON()" class="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs transition">
+            📥 导入并应用下方 JSON 到当前群
+          </button>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5">群组全量配置 JSON 数据（可直接编辑或粘贴其他群导出的 JSON）：</label>
+          <textarea id="portability-json-box" rows="12" class="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-emerald-300 font-mono focus:outline-none focus:border-sky-500"></textarea>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 底部悬浮固定条 (Fixed Bottom Bar - PRD 3.1) -->
+  <footer class="fixed bottom-0 inset-x-0 z-40 glass-bottom border-t border-slate-800 px-4 py-2.5">
+    <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div id="bottom-group-avatar" class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow">
+          TG
+        </div>
+        <div class="min-w-0">
+          <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>当前激活配置群组</span>
+          </div>
+          <div id="bottom-group-name" class="text-sm font-bold text-white truncate">加载中...</div>
+        </div>
+      </div>
+
+      <button
+        id="btn-open-group-switcher"
+        type="button"
+        onclick="toggleGroupSwitcherModal(true)"
+        class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-sky-400 flex items-center gap-1.5 shrink-0 transition"
+      >
+        <span>切换群组</span>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>
+      </button>
+    </div>
+  </footer>
+
+  <!-- 群组切换遮罩弹窗 (Bottom Sheet Modal) -->
+  <div id="group-switcher-modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-950/75 backdrop-blur-sm p-0 sm:p-4">
+    <div class="w-full max-w-lg rounded-t-3xl sm:rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+        <div>
+          <h3 class="text-sm font-bold text-white">选择要管理的 Telegram 群组</h3>
+          <p class="text-[11px] text-slate-400">仅列出您具备管理员权限且 Bot 已入驻的群组</p>
+        </div>
+        <button type="button" onclick="toggleGroupSwitcherModal(false)" class="w-7 h-7 rounded-lg bg-slate-800 text-slate-400 hover:text-white text-xs">✕</button>
+      </div>
+      <div id="group-switcher-list" class="space-y-2 max-h-72 overflow-y-auto pr-1"></div>
+    </div>
+  </div>
+
+  <!-- 全局 Toast 通知组件 (替代原生 alert) -->
+  <div id="toast-container" class="fixed top-16 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <script>
+    // ==================== 1. 全局状态与预设沙盒演示数据 ====================
+    const tgWebApp = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+    const rawInitData = (tgWebApp && tgWebApp.initData) ? tgWebApp.initData : '';
+
+    const HUB_MODULES = [
+      {
+        id: 'moderation',
+        icon: '🛡️',
+        title: '消息拦截与审计',
+        desc: '敏感词增删改查、防外链/转发拦截开关、告警 TTL 与阶梯处罚',
+        keywords: '敏感词 外链 转发 广告 警告 禁言 踢出 封禁 正则 moderation',
+        badgeKey: 'moderation'
+      },
+      {
+        id: 'captcha',
+        icon: '🧩',
+        title: '入群人机验证',
+        desc: '算术/图符/点选验证码类型、超时时限、失败踢出或封禁处罚',
+        keywords: '人机验证 验证码 算术 图符 点选 入群 超时 captcha',
+        badgeKey: 'captcha'
+      },
+      {
+        id: 'welcome',
+        icon: '💌',
+        title: '事件消息管理',
+        desc: '入群欢迎开关、生效模板绑定、防刷屏前置撤回与 TTL 倒计时',
+        keywords: '入群欢迎 欢迎语 自动撤回 倒计时 刷屏 welcome ttl',
+        badgeKey: 'welcome'
+      },
+      {
+        id: 'llm',
+        icon: '🤖',
+        title: '智能助手 (Ollama)',
+        desc: '本地 qwen2.5:7b 模型选择、唤醒条件、System Prompt 与记忆隔离',
+        keywords: '智能助手 AI 大模型 Ollama qwen 提示词 上下文 记忆 llm',
+        badgeKey: 'llm'
+      },
+      {
+        id: 'templates',
+        icon: '📄',
+        title: '消息模板库',
+        desc: '独立消息模板管理，支持图文、插值占位符与内联按钮矩阵预览',
+        keywords: '消息模板 欢迎语模板 按钮 图文 插值 变量 templates',
+        badgeKey: 'templates'
+      },
+      {
+        id: 'emergency',
+        icon: '⚡',
+        title: '紧急模式与权限',
+        desc: '一键防爆群全员禁言锁群、防拉人爆群自动移出、/admin 呼叫群管',
+        keywords: '紧急模式 锁群 全员禁言 爆群 权限 admin 举报 emergency',
+        badgeKey: 'emergency'
+      },
+      {
+        id: 'logs',
+        icon: '📝',
+        title: '操作日志与审计',
+        desc: '管理员面板修改流水、验证超时踢出与敏感词自动拦截记录',
+        keywords: '操作日志 审计 流水 历史 记录 logs',
+        badgeKey: 'logs'
+      },
+      {
+        id: 'portability',
+        icon: '💾',
+        title: '配置导入与导出',
+        desc: '当前群组全量配置一键导出为 JSON，快速复制克隆到新群组',
+        keywords: '导入 导出 备份 克隆 JSON 迁移 portability',
+        badgeKey: 'portability'
+      }
+    ];
+
+    // 当在无后端静态环境或 Canvas 中预览时使用的完整内存数据库
+    const mockStore = {
+      user: { id: 88019283, first_name: 'Argon', username: 'argon_admin' },
+      groups: [
+        { group_id: -1001889001, group_title: 'Web3 开发者与安全审计社区', is_active: true },
+        { group_id: -1001889002, group_title: 'Ollama 本地大模型炼丹交流群', is_active: true },
+        { group_id: -1001889003, group_title: '量化交易与高频策略研究院', is_active: true }
+      ],
+      captcha: {
+        '-1001889001': { group_id: -1001889001, enabled: true, captcha_type: 'math', timeout: 60, action_on_fail: 'kick', auto_delete_prompt: true },
+        '-1001889002': { group_id: -1001889002, enabled: true, captcha_type: 'choice', timeout: 90, action_on_fail: 'kick', auto_delete_prompt: true },
+        '-1001889003': { group_id: -1001889003, enabled: false, captcha_type: 'click', timeout: 60, action_on_fail: 'ban', auto_delete_prompt: true }
+      },
+      templates: [
+        {
+          template_id: 1,
+          group_id: null,
+          template_name: '系统默认入群欢迎模板',
+          media_type: 'none',
+          media_source: '',
+          content: '🎉 欢迎新成员 {mention} 加入 <b>{group_title}</b>！\n\n🪪 您的 ID：<code>{user_id}</code>\n📌 请遵守群规，文明讨论，需要帮助可在群内 @AI 助手。',
+          buttons_json: JSON.stringify([[{ text: '📖 阅读群规指南', url: 'https://telegram.org' }, { text: '🌐 官方网站', url: 'https://core.telegram.org/bots/webapps' }]])
+        },
+        {
+          template_id: 2,
+          group_id: -1001889001,
+          template_name: '开发者社区新人指引模板',
+          media_type: 'none',
+          media_source: '',
+          content: '👋 欢迎开发者 {mention} ({username}) 来到 <b>{group_title}</b>！\n\n• 提问前请附上复现代码或报错日志\n• 发送 <code>ai 你的问题</code> 可直接唤醒本地 Qwen2.5 助手',
+          buttons_json: JSON.stringify([[{ text: '💻 GitHub 仓库', url: 'https://github.com' }]])
+        }
+      ],
+      welcome: {
+        '-1001889001': { group_id: -1001889001, enabled: true, active_template_id: 2, delete_ttl: 120, clean_previous: true },
+        '-1001889002': { group_id: -1001889002, enabled: true, active_template_id: 1, delete_ttl: 90, clean_previous: true },
+        '-1001889003': { group_id: -1001889003, enabled: true, active_template_id: 1, delete_ttl: 60, clean_previous: true }
+      },
+      moderation: {
+        '-1001889001': { group_id: -1001889001, block_tg_links: true, block_all_urls: false, block_forwards: false, send_warning_msg: true, warning_ttl: 5, max_warn_count: 3, warn_action: 'kick' },
+        '-1001889002': { group_id: -1001889002, block_tg_links: true, block_all_urls: false, block_forwards: true, send_warning_msg: true, warning_ttl: 5, max_warn_count: 3, warn_action: 'mute' },
+        '-1001889003': { group_id: -1001889003, block_tg_links: true, block_all_urls: true, block_forwards: true, send_warning_msg: true, warning_ttl: 10, max_warn_count: 2, warn_action: 'ban' }
+      },
+      rules: {
+        '-1001889001': [
+          { rule_id: 101, group_id: -1001889001, pattern: '免费领币', match_type: 'contains', punish_action: 'ban', mute_duration: 3600 },
+          { rule_id: 102, group_id: -1001889001, pattern: 'USDT跑分', match_type: 'contains', punish_action: 'kick', mute_duration: 3600 },
+          { rule_id: 103, group_id: -1001889001, pattern: '加微.*[0-9]{5,}', match_type: 'regex', punish_action: 'mute', mute_duration: 3600 }
+        ],
+        '-1001889002': [
+          { rule_id: 201, group_id: -1001889002, pattern: '代写外挂', match_type: 'contains', punish_action: 'delete_only', mute_duration: 3600 }
+        ],
+        '-1001889003': []
+      },
+      llm: {
+        '-1001889001': {
+          group_id: -1001889001,
+          enabled: true,
+          base_url: 'http://host.docker.internal:11434',
+          model_name: 'qwen2.5:7b',
+          system_prompt: '你是一个群组智能管家，性格幽默、有问必答、语气简短有力。',
+          trigger_on_mention: true,
+          trigger_on_reply: true,
+          trigger_keywords: 'ai ,小助手 ',
+          context_enabled: true,
+          context_mode: 'user_isolated',
+          context_limit: 6,
+          history_count: 18
+        },
+        '-1001889002': {
+          group_id: -1001889002,
+          enabled: true,
+          base_url: 'http://host.docker.internal:11434',
+          model_name: 'qwen2.5:7b',
+          system_prompt: '你是资深大模型部署工程师，精通 Ollama、vLLM 与量化推理调优。',
+          trigger_on_mention: true,
+          trigger_on_reply: true,
+          trigger_keywords: 'ai ,模型 ',
+          context_enabled: true,
+          context_mode: 'shared',
+          context_limit: 10,
+          history_count: 42
+        },
+        '-1001889003': {
+          group_id: -1001889003,
+          enabled: false,
+          base_url: 'http://host.docker.internal:11434',
+          model_name: 'qwen2.5:7b',
+          system_prompt: '你是一个群组智能管家，性格幽默、有问必答、语气简短有力。',
+          trigger_on_mention: true,
+          trigger_on_reply: true,
+          trigger_keywords: '',
+          context_enabled: true,
+          context_mode: 'user_isolated',
+          context_limit: 6,
+          history_count: 0
+        }
+      },
+      emergency: {
+        '-1001889001': { group_id: -1001889001, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: false },
+        '-1001889002': { group_id: -1001889002, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: true },
+        '-1001889003': { group_id: -1001889003, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: false }
+      },
+      logs: {
+        '-1001889001': [
+          { log_id: 3, operator_name: 'Argon', action_type: 'update_captcha', detail: '更新入群验证: 开启=true, 模式=math, 超时=60s', created_at: '2026-11-08 13:55:10' },
+          { log_id: 2, operator_name: 'AutoModerator', action_type: 'violation_ban', detail: '拦截用户 Spammer01 (7019283): 命中敏感词规则 [免费领币] -> 已永久封禁', created_at: '2026-11-08 13:42:04' },
+          { log_id: 1, operator_name: 'SystemCaptcha', action_type: 'captcha_timeout_kick', detail: '用户 9948172 入群验证超时，已执行 kick', created_at: '2026-11-08 13:20:51' }
+        ],
+        '-1001889002': [
+          { log_id: 4, operator_name: 'Argon', action_type: 'update_llm', detail: '更新 Ollama AI 配置: 开启=true, 模型=qwen2.5:7b', created_at: '2026-11-08 12:15:00' }
+        ],
+        '-1001889003': []
+      }
+    };
+
+    const appState = {
+      isLiveBackend: false,
+      currentView: 'hub',
+      searchQuery: '',
+      currentUser: mockStore.user,
+      groups: [],
+      activeGroupId: -1001889001,
+      overview: null,
+      captcha: null,
+      templates: [],
+      welcome: null,
+      moderation: null,
+      rules: [],
+      llm: null,
+      emergency: null,
+      logs: []
+    };
+
+    // ==================== 2. 统一 API 通信与沙盒自适应降级层 ====================
+    async function apiRequest(method, path, body = null) {
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': rawInitData || 'dev'
+      };
+      // 在 http/https 环境下尝试请求 FastAPI 服务端
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        try {
+          const resp = await fetch(path, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined
+          });
+          if (resp.ok) {
+            const contentType = resp.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              appState.isLiveBackend = true;
+              updateConnectionBadge(true);
+              return await resp.json();
+            }
+          }
+        } catch (err) {
+          // 降级到前端沙盒状态机
+        }
+      }
+      appState.isLiveBackend = false;
+      updateConnectionBadge(false);
+      return mockApiRouter(method, path, body);
+    }
+
+    function updateConnectionBadge(isLive) {
+      const badge = document.getElementById('conn-mode-badge');
+      if (!badge) return;
+      if (isLive) {
+        badge.textContent = '实时 API 已连接';
+        badge.className = 'text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+      } else {
+        badge.textContent = '交互演示模式';
+        badge.className = 'text-[11px] font-medium px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30';
+      }
+    }
+
+    function pushMockLog(gid, actionType, detail) {
+      const key = String(gid);
+      if (!mockStore.logs[key]) mockStore.logs[key] = [];
+      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      mockStore.logs[key].unshift({
+        log_id: Date.now(),
+        operator_name: appState.currentUser.first_name || 'Admin',
+        action_type: actionType,
+        detail,
+        created_at: nowStr
+      });
+    }
+
+    function mockApiRouter(method, path, body) {
+      const gidStr = String(appState.activeGroupId);
+      if (path === '/api/auth/verify') {
+        return { authenticated: true, user: mockStore.user };
+      }
+      if (path === '/api/groups') {
+        return { groups: mockStore.groups };
+      }
+      const match = path.match(/^\/api\/group\/(-?\d+)\/(.+)$/);
+      if (!match) return { status: 'ok' };
+      const gid = Number(match[1]);
+      const gKey = String(gid);
+      const sub = match[2];
+
+      if (sub === 'overview') {
+        const grp = mockStore.groups.find(g => g.group_id === gid) || mockStore.groups[0];
+        const cap = mockStore.captcha[gKey] || {};
+        const wel = mockStore.welcome[gKey] || {};
+        const mod = mockStore.moderation[gKey] || {};
+        const llm = mockStore.llm[gKey] || {};
+        const emg = mockStore.emergency[gKey] || {};
+        const rList = mockStore.rules[gKey] || [];
+        const tList = mockStore.templates.filter(t => t.group_id === null || t.group_id === gid);
+        return {
+          group: grp,
+          modules: {
+            captcha_enabled: !!cap.enabled,
+            captcha_type: cap.captcha_type || 'math',
+            welcome_enabled: !!wel.enabled,
+            welcome_ttl: wel.delete_ttl ?? 120,
+            block_tg_links: !!mod.block_tg_links,
+            block_all_urls: !!mod.block_all_urls,
+            sensitive_rules_count: rList.length,
+            templates_count: tList.length,
+            warned_users_count: 2,
+            llm_enabled: !!llm.enabled,
+            llm_model: llm.model_name || 'qwen2.5:7b',
+            lockdown_mode: !!emg.lockdown_mode,
+            raid_protection: !!emg.raid_protection
+          }
+        };
+      }
+      if (sub === 'captcha') {
+        if (method === 'POST' && body) {
+          mockStore.captcha[gKey] = { group_id: gid, ...body };
+          pushMockLog(gid, 'update_captcha', `更新入群验证: 开启=${body.enabled}, 模式=${body.captcha_type}, 超时=${body.timeout}s`);
+        }
+        return { status: 'ok', captcha: mockStore.captcha[gKey] };
+      }
+      if (sub === 'templates') {
+        if (method === 'POST' && body) {
+          const buttonsJson = JSON.stringify(body.buttons || []);
+          if (body.template_id) {
+            const idx = mockStore.templates.findIndex(t => t.template_id === Number(body.template_id));
+            if (idx >= 0) {
+              mockStore.templates[idx] = {
+                ...mockStore.templates[idx],
+                template_name: body.template_name,
+                media_type: body.media_type,
+                media_source: body.media_source,
+                content: body.content,
+                buttons_json: buttonsJson
+              };
+            }
+            pushMockLog(gid, 'save_template', `更新消息模板: ${body.template_name}`);
+          } else {
+            const newId = Date.now() % 100000;
+            mockStore.templates.unshift({
+              template_id: newId,
+              group_id: gid,
+              template_name: body.template_name,
+              media_type: body.media_type,
+              media_source: body.media_source,
+              content: body.content,
+              buttons_json: buttonsJson
+            });
+            pushMockLog(gid, 'save_template', `新建消息模板: ${body.template_name}`);
+          }
+        }
+        const list = mockStore.templates
+          .filter(t => t.group_id === null || t.group_id === gid)
+          .map(t => ({ ...t, buttons: JSON.parse(t.buttons_json || '[]') }));
+        return { templates: list };
+      }
+      if (sub.startsWith('templates/') && method === 'DELETE') {
+        const tid = Number(sub.split('/')[1]);
+        mockStore.templates = mockStore.templates.filter(t => t.template_id !== tid);
+        pushMockLog(gid, 'delete_template', `删除消息模板 ID=${tid}`);
+        return { status: 'ok', deleted_id: tid };
+      }
+      if (sub === 'welcome') {
+        if (method === 'POST' && body) {
+          mockStore.welcome[gKey] = { group_id: gid, ...body };
+          pushMockLog(gid, 'update_welcome', `更新入群欢迎: 开启=${body.enabled}, TTL=${body.delete_ttl}s`);
+        }
+        return { status: 'ok', welcome: mockStore.welcome[gKey] };
+      }
+      if (sub === 'moderation') {
+        if (method === 'POST' && body) {
+          mockStore.moderation[gKey] = {
+            group_id: gid,
+            block_tg_links: body.block_tg_links,
+            block_all_urls: body.block_all_urls,
+            block_forwards: body.block_forwards,
+            send_warning_msg: body.send_warning_msg,
+            warning_ttl: body.warning_ttl,
+            max_warn_count: body.max_warn_count,
+            warn_action: body.warn_action
+          };
+          if (Array.isArray(body.rules)) {
+            mockStore.rules[gKey] = body.rules.map((r, i) => ({
+              rule_id: r.rule_id || (Date.now() + i),
+              group_id: gid,
+              pattern: r.pattern,
+              match_type: r.match_type,
+              punish_action: r.punish_action,
+              mute_duration: r.mute_duration || 3600
+            }));
+          }
+          if (Array.isArray(body.batch_keywords)) {
+            if (!mockStore.rules[gKey]) mockStore.rules[gKey] = [];
+            body.batch_keywords.forEach((kw, idx) => {
+              if (kw && kw.trim()) {
+                mockStore.rules[gKey].unshift({
+                  rule_id: Date.now() + idx,
+                  group_id: gid,
+                  pattern: kw.trim(),
+                  match_type: 'contains',
+                  punish_action: 'delete_only',
+                  mute_duration: 3600
+                });
+              }
+            });
+          }
+          pushMockLog(gid, 'update_moderation', `更新内容安全策略 (规则数: ${(mockStore.rules[gKey] || []).length})`);
+        }
+        return {
+          status: 'ok',
+          moderation: mockStore.moderation[gKey],
+          rules: mockStore.rules[gKey] || []
+        };
+      }
+      if (sub === 'llm') {
+        if (method === 'POST' && body) {
+          const prevCnt = (mockStore.llm[gKey] && mockStore.llm[gKey].history_count) || 0;
+          mockStore.llm[gKey] = { group_id: gid, ...body, history_count: prevCnt };
+          pushMockLog(gid, 'update_llm', `更新 Ollama AI: 开启=${body.enabled}, 模型=${body.model_name}`);
+        }
+        return {
+          status: 'ok',
+          llm: mockStore.llm[gKey],
+          history_count: (mockStore.llm[gKey] && mockStore.llm[gKey].history_count) || 0
+        };
+      }
+      if (sub === 'llm/history' && method === 'DELETE') {
+        if (mockStore.llm[gKey]) mockStore.llm[gKey].history_count = 0;
+        pushMockLog(gid, 'clear_llm_history', '清空本群 AI 对话历史上下文记忆');
+        return { status: 'ok' };
+      }
+      if (sub === 'emergency') {
+        if (method === 'POST' && body) {
+          mockStore.emergency[gKey] = { group_id: gid, ...body };
+          pushMockLog(gid, 'update_emergency', `更新紧急模式: 全员锁群=${body.lockdown_mode}, 防爆群=${body.raid_protection}`);
+        }
+        return { status: 'ok', emergency: mockStore.emergency[gKey] };
+      }
+      if (sub === 'logs') {
+        return { logs: mockStore.logs[gKey] || [] };
+      }
+      if (sub === 'export') {
+        return {
+          version: '1.0',
+          source_group_id: gid,
+          captcha: mockStore.captcha[gKey],
+          welcome: mockStore.welcome[gKey],
+          moderation: { ...(mockStore.moderation[gKey] || {}), rules: mockStore.rules[gKey] || [] },
+          llm: mockStore.llm[gKey],
+          emergency: mockStore.emergency[gKey]
+        };
+      }
+      if (sub === 'import' && method === 'POST' && body) {
+        if (body.captcha) mockStore.captcha[gKey] = { group_id: gid, ...body.captcha };
+        if (body.welcome) mockStore.welcome[gKey] = { group_id: gid, ...body.welcome };
+        if (body.moderation) {
+          const { rules, ...restMod } = body.moderation;
+          mockStore.moderation[gKey] = { group_id: gid, ...restMod };
+          if (Array.isArray(rules)) mockStore.rules[gKey] = rules;
+        }
+        if (body.llm) mockStore.llm[gKey] = { group_id: gid, ...body.llm };
+        if (body.emergency) mockStore.emergency[gKey] = { group_id: gid, ...body.emergency };
+        pushMockLog(gid, 'import_config', '通过 JSON 导入并覆盖群组全量配置');
+        return { status: 'ok' };
+      }
+      return { status: 'ok' };
+    }
+
+    // ==================== 3. Toast 提示工具 ====================
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const el = document.createElement('div');
+      const colorCls = type === 'error'
+        ? 'bg-rose-950/95 border-rose-500/50 text-rose-200'
+        : 'bg-slate-900/95 border-sky-500/50 text-sky-200';
+      el.className = `px-3.5 py-2.5 rounded-xl border shadow-xl text-xs font-medium flex items-center gap-2 transition duration-300 ${colorCls}`;
+      el.innerHTML = `<span>${type === 'error' ? '⚠️' : '✅'}</span><span>${escapeHtml(message)}</span>`;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 250);
+      }, 2400);
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ==================== 4. 视图路由与中枢卡片渲染 ====================
+    function navigateToView(viewId) {
+      appState.currentView = viewId;
+      const allViews = ['hub', 'moderation', 'captcha', 'welcome', 'llm', 'templates', 'emergency', 'logs', 'portability'];
+      allViews.forEach(v => {
+        const sec = document.getElementById(`view-${v}`);
+        if (sec) sec.classList.toggle('hidden', v !== viewId);
+      });
+
+      const backBtn = document.getElementById('btn-back-hub');
+      const searchContainer = document.getElementById('search-bar-container');
+      const headerTitle = document.getElementById('header-title');
+
+      if (viewId === 'hub') {
+        backBtn.classList.add('hidden');
+        backBtn.classList.remove('flex');
+        searchContainer.classList.remove('hidden');
+        headerTitle.textContent = '群管与 AI 控制中枢';
+        renderHubCards();
+      } else {
+        backBtn.classList.remove('hidden');
+        backBtn.classList.add('flex');
+        searchContainer.classList.add('hidden');
+        const modMeta = HUB_MODULES.find(m => m.id === viewId);
+        if (modMeta) headerTitle.textContent = `${modMeta.icon} ${modMeta.title}`;
+        if (viewId === 'logs') loadAuditLogs();
+        if (viewId === 'portability') exportCurrentGroupJSON(true);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function handleModuleSearch(query) {
+      appState.searchQuery = (query || '').trim().toLowerCase();
+      const clearBtn = document.getElementById('btn-clear-search');
+      if (clearBtn) clearBtn.classList.toggle('hidden', !appState.searchQuery);
+      renderHubCards();
+    }
+
+    function clearModuleSearch() {
+      const input = document.getElementById('module-search-input');
+      if (input) input.value = '';
+      handleModuleSearch('');
+    }
+
+    function getModuleStatusBadge(moduleId) {
+      const m = (appState.overview && appState.overview.modules) || {};
+      switch (moduleId) {
+        case 'moderation':
+          return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">${m.sensitive_rules_count ?? 0} 条规则生效</span>`;
+        case 'captcha':
+          return m.captcha_enabled
+            ? `<span class="px-2 py-0.5 rounded-full text-[11px] bg-sky-500/15 text-sky-300 border border-sky-500/30">已启用 (${m.captcha_type || 'math'})</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-400">已关闭</span>`;
+        case 'welcome':
+          return m.welcome_enabled
+            ? `<span class="px-2 py-0.5 rounded-full text-[11px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">TTL ${m.welcome_ttl ?? 120}s</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-400">已关闭</span>`;
+        case 'llm':
+          return m.llm_enabled
+            ? `<span class="px-2 py-0.5 rounded-full text-[11px] bg-purple-500/15 text-purple-300 border border-purple-500/30">${escapeHtml(m.llm_model || 'qwen2.5:7b')}</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-400">待机</span>`;
+        case 'templates':
+          return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-300">${m.templates_count ?? 0} 套模板</span>`;
+        case 'emergency':
+          return m.lockdown_mode
+            ? `<span class="px-2 py-0.5 rounded-full text-[11px] bg-rose-500/20 text-rose-300 border border-rose-500/40">🔒 锁群中</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-400">常规防护</span>`;
+        case 'logs':
+          return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-slate-300">${(appState.logs || []).length} 条流水</span>`;
+        case 'portability':
+          return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-slate-800 text-sky-300">JSON 克隆</span>`;
+        default:
+          return '';
+      }
+    }
+
+    function renderHubCards() {
+      const grid = document.getElementById('hub-cards-grid');
+      const emptyBox = document.getElementById('hub-search-empty');
+      if (!grid) return;
+
+      const q = appState.searchQuery;
+      const filtered = HUB_MODULES.filter(item => {
+        if (!q) return true;
+        return (
+          item.title.toLowerCase().includes(q) ||
+          item.desc.toLowerCase().includes(q) ||
+          item.keywords.toLowerCase().includes(q)
+        );
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '';
+        emptyBox.classList.remove('hidden');
+        return;
+      }
+      emptyBox.classList.add('hidden');
+
+      grid.innerHTML = filtered.map(item => `
+        <button
+          type="button"
+          onclick="navigateToView('${item.id}')"
+          class="text-left p-4 rounded-2xl bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 hover:border-sky-500/40 transition group flex flex-col justify-between gap-3 shadow-sm"
+        >
+          <div class="flex items-start justify-between gap-2 w-full">
+            <div class="flex items-center gap-2.5">
+              <span class="w-9 h-9 rounded-xl bg-slate-800 group-hover:bg-sky-500/15 flex items-center justify-center text-lg transition">${item.icon}</span>
+              <div>
+                <h3 class="text-sm font-bold text-white group-hover:text-sky-300 transition">${escapeHtml(item.title)}</h3>
+              </div>
+            </div>
+            ${getModuleStatusBadge(item.id)}
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed">${escapeHtml(item.desc)}</p>
+        </button>
+      `).join('');
+    }
+
+    // ==================== 5. 数据加载与表单同步 ====================
+    async function initApp() {
+      if (tgWebApp) {
+        try {
+          tgWebApp.ready();
+          tgWebApp.expand();
+        } catch (e) {}
+      }
+
+      const authRes = await apiRequest('POST', '/api/auth/verify');
+      if (authRes && authRes.user) {
+        appState.currentUser = authRes.user;
+      }
+
+      const groupsRes = await apiRequest('GET', '/api/groups');
+      appState.groups = (groupsRes && groupsRes.groups && groupsRes.groups.length > 0)
+        ? groupsRes.groups
+        : mockStore.groups;
+
+      appState.activeGroupId = appState.groups[0].group_id;
+      await refreshAllGroupData();
+    }
+
+    async function refreshAllGroupData() {
+      const gid = appState.activeGroupId;
+      const [ov, cap, tpl, wel, mod, llm, emg, logs] = await Promise.all([
+        apiRequest('GET', `/api/group/${gid}/overview`),
+        apiRequest('GET', `/api/group/${gid}/captcha`),
+        apiRequest('GET', `/api/group/${gid}/templates`),
+        apiRequest('GET', `/api/group/${gid}/welcome`),
+        apiRequest('GET', `/api/group/${gid}/moderation`),
+        apiRequest('GET', `/api/group/${gid}/llm`),
+        apiRequest('GET', `/api/group/${gid}/emergency`),
+        apiRequest('GET', `/api/group/${gid}/logs`)
+      ]);
+
+      appState.overview = ov;
+      appState.captcha = (cap && cap.captcha) || {};
+      appState.templates = (tpl && tpl.templates) || [];
+      appState.welcome = (wel && wel.welcome) || {};
+      appState.moderation = (mod && mod.moderation) || {};
+      appState.rules = (mod && mod.rules) || [];
+      appState.llm = (llm && llm.llm) || {};
+      appState.llm.history_count = (llm && llm.history_count) ?? 0;
+      appState.emergency = (emg && emg.emergency) || {};
+      appState.logs = (logs && logs.logs) || [];
+
+      populateOverviewAndBottomBar();
+      populateModerationForm();
+      populateCaptchaForm();
+      populateTemplatesView();
+      populateWelcomeForm();
+      populateLLMForm();
+      populateEmergencyForm();
+      renderAuditLogs();
+      renderHubCards();
+    }
+
+    function populateOverviewAndBottomBar() {
+      const grp = appState.groups.find(g => g.group_id === appState.activeGroupId) || appState.groups[0];
+      const title = grp ? grp.group_title : `群组 ${appState.activeGroupId}`;
+      const initials = title.slice(0, 2).toUpperCase();
+
+      document.getElementById('overview-group-badge').textContent = initials;
+      document.getElementById('overview-group-title').textContent = title;
+      document.getElementById('overview-group-id').textContent = String(appState.activeGroupId);
+      document.getElementById('overview-admin-name').textContent =
+        appState.currentUser.username ? `@${appState.currentUser.username}` : (appState.currentUser.first_name || 'Admin');
+
+      const m = (appState.overview && appState.overview.modules) || {};
+      document.getElementById('stat-rules-count').textContent = String(m.sensitive_rules_count ?? appState.rules.length);
+      document.getElementById('stat-tpl-count').textContent = String(m.templates_count ?? appState.templates.length);
+      document.getElementById('stat-warn-count').textContent = String(m.warned_users_count ?? 0);
+
+      const lockPill = document.getElementById('overview-lockdown-pill');
+      if (lockPill) lockPill.classList.toggle('hidden', !m.lockdown_mode);
+
+      document.getElementById('bottom-group-avatar').textContent = initials;
+      document.getElementById('bottom-group-name').textContent = title;
+    }
+
+    // ==================== 6. 各模块表单渲染与保存逻辑 ====================
+
+    // --- 6.1 消息拦截与审计 (Moderation) ---
+    function populateModerationForm() {
+      const m = appState.moderation || {};
+      document.getElementById('mod-block-tg-links').checked = !!m.block_tg_links;
+      document.getElementById('mod-block-all-urls').checked = !!m.block_all_urls;
+      document.getElementById('mod-block-forwards').checked = !!m.block_forwards;
+      document.getElementById('mod-send-warning').checked = m.send_warning_msg !== undefined ? !!m.send_warning_msg : true;
+      document.getElementById('mod-warning-ttl').value = m.warning_ttl ?? 5;
+      document.getElementById('mod-max-warn').value = m.max_warn_count ?? 3;
+      document.getElementById('mod-warn-action').value = m.warn_action || 'kick';
+      renderSensitiveRulesList();
+    }
+
+    function renderSensitiveRulesList() {
+      const container = document.getElementById('sensitive-rules-list');
+      if (!container) return;
+      if (!appState.rules || appState.rules.length === 0) {
+        container.innerHTML = `<div class="p-4 rounded-xl bg-slate-950/50 border border-slate-800 text-center text-xs text-slate-500">暂无敏感词拦截规则，请在上方添加或批量导入</div>`;
+        return;
+      }
+
+      const matchBadgeMap = {
+        contains: '<span class="px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 text-[10px]">包含匹配</span>',
+        exact: '<span class="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[10px]">精确匹配</span>',
+        regex: '<span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[10px]">正则表达式</span>'
+      };
+      const actionBadgeMap = {
+        delete_only: '<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">仅秒删警告</span>',
+        mute: '<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px]">禁言 1 小时</span>',
+        kick: '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px]">移出群聊</span>',
+        ban: '<span class="px-2 py-0.5 rounded bg-rose-600/30 text-rose-200 text-[10px]">永久封禁</span>'
+      };
+
+      container.innerHTML = appState.rules.map((r, idx) => `
+        <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/90">
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
+            <code class="text-xs font-mono text-white bg-slate-900 px-2 py-0.5 rounded border border-slate-800 break-all">${escapeHtml(r.pattern)}</code>
+            ${matchBadgeMap[r.match_type] || ''}
+            ${actionBadgeMap[r.punish_action] || ''}
+          </div>
+          <button type="button" onclick="removeSensitiveRule(${idx})" class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 text-xs shrink-0 transition">
+            删除
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function addSensitiveRule() {
+      const patternInput = document.getElementById('new-rule-pattern');
+      const pattern = (patternInput.value || '').trim();
+      if (!pattern) {
+        showToast('请输入敏感词或正则表达式', 'error');
+        return;
+      }
+      const match_type = document.getElementById('new-rule-match').value;
+      const punish_action = document.getElementById('new-rule-action').value;
+
+      appState.rules.unshift({
+        rule_id: Date.now(),
+        pattern,
+        match_type,
+        punish_action,
+        mute_duration: 3600
+      });
+      patternInput.value = '';
+      renderSensitiveRulesList();
+      saveModerationSettings();
+    }
+
+    function removeSensitiveRule(index) {
+      appState.rules.splice(index, 1);
+      renderSensitiveRulesList();
+      saveModerationSettings();
+    }
+
+    function toggleBatchKeywordBox() {
+      const box = document.getElementById('batch-keyword-box');
+      if (box) box.classList.toggle('hidden');
+    }
+
+    async function submitBatchKeywords() {
+      const raw = document.getElementById('batch-keyword-textarea').value || '';
+      const list = raw.split(/[\n,，]+/).map(s => s.trim()).filter(Boolean);
+      if (list.length === 0) {
+        showToast('请先输入要批量导入的敏感词', 'error');
+        return;
+      }
+      await saveModerationSettings(list);
+      document.getElementById('batch-keyword-textarea').value = '';
+      document.getElementById('batch-keyword-box').classList.add('hidden');
+    }
+
+    async function saveModerationSettings(batchKeywords = null) {
+      const payload = {
+        block_tg_links: document.getElementById('mod-block-tg-links').checked,
+        block_all_urls: document.getElementById('mod-block-all-urls').checked,
+        block_forwards: document.getElementById('mod-block-forwards').checked,
+        send_warning_msg: document.getElementById('mod-send-warning').checked,
+        warning_ttl: Number(document.getElementById('mod-warning-ttl').value || 5),
+        max_warn_count: Number(document.getElementById('mod-max-warn').value || 3),
+        warn_action: document.getElementById('mod-warn-action').value,
+        rules: appState.rules,
+        batch_keywords: batchKeywords
+      };
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/moderation`, payload);
+      await refreshAllGroupData();
+      showToast('内容安全与敏感词策略已保存');
+    }
+
+    // --- 6.2 入群人机验证 (CAPTCHA) ---
+    function populateCaptchaForm() {
+      const c = appState.captcha || {};
+      document.getElementById('cap-enabled').checked = c.enabled !== undefined ? !!c.enabled : true;
+      document.getElementById('cap-type').value = c.captcha_type || 'math';
+      document.getElementById('cap-timeout').value = c.timeout ?? 60;
+      document.getElementById('cap-fail-action').value = c.action_on_fail || 'kick';
+      document.getElementById('cap-auto-delete').checked = c.auto_delete_prompt !== undefined ? !!c.auto_delete_prompt : true;
+      renderCaptchaPreview();
+    }
+
+    function renderCaptchaPreview() {
+      const box = document.getElementById('captcha-live-preview');
+      if (!box) return;
+      const enabled = document.getElementById('cap-enabled').checked;
+      if (!enabled) {
+        box.innerHTML = `<div class="text-slate-400">当前入群验证已关闭，新成员进群将直接获得发言权限并触发欢迎语。</div>`;
+        return;
+      }
+      const cType = document.getElementById('cap-type').value;
+      const timeout = document.getElementById('cap-timeout').value || 60;
+      const failAction = document.getElementById('cap-fail-action').value === 'ban' ? '封禁拉黑' : '移出群聊';
+
+      let questionHtml = '';
+      let buttonsHtml = '';
+      if (cType === 'click') {
+        questionHtml = '👉 请点击下方按钮确认您是真人用户：';
+        buttonsHtml = `<div class="grid grid-cols-1 gap-1.5 pt-1"><div class="py-1.5 rounded-lg bg-sky-500/20 border border-sky-500/40 text-center text-sky-300 font-medium">✅ 点击验证我是人类</div></div>`;
+      } else if (cType === 'choice') {
+        questionHtml = '👉 请在下方按钮中找出并点击 <b>【🚀 火箭】</b> 图标：';
+        buttonsHtml = `<div class="grid grid-cols-3 gap-1.5 pt-1">
+          <div class="py-1.5 rounded-lg bg-slate-800/90 text-center">🛡️</div>
+          <div class="py-1.5 rounded-lg bg-sky-500/25 border border-sky-500/40 text-center">🚀</div>
+          <div class="py-1.5 rounded-lg bg-slate-800/90 text-center">💎</div>
+        </div>`;
+      } else {
+        questionHtml = '👉 请计算算术题：<b>14 + 9 = ?</b>';
+        buttonsHtml = `<div class="grid grid-cols-4 gap-1.5 pt-1">
+          <div class="py-1.5 rounded-lg bg-slate-800/90 text-center">21</div>
+          <div class="py-1.5 rounded-lg bg-sky-500/25 border border-sky-500/40 text-center font-bold text-sky-300">23</div>
+          <div class="py-1.5 rounded-lg bg-slate-800/90 text-center">25</div>
+          <div class="py-1.5 rounded-lg bg-slate-800/90 text-center">19</div>
+        </div>`;
+      }
+
+      box.innerHTML = `
+        <div class="space-y-1.5">
+          <div class="font-bold text-sky-300">🛡️ 入群安全验证</div>
+          <p class="text-slate-200">欢迎 <span class="text-sky-400 underline">@NewMember</span> 加入本群！为防止广告机器人，请在 <b>${escapeHtml(timeout)} 秒</b> 内完成以下验证：</p>
+          <p class="text-white">${questionHtml}</p>
+          <p class="text-[11px] text-slate-400 italic">⚠️ 超时未完成验证将被系统自动${failAction}。</p>
+          ${buttonsHtml}
+        </div>
+      `;
+    }
+
+    async function saveCaptchaSettings() {
+      const payload = {
+        enabled: document.getElementById('cap-enabled').checked,
+        captcha_type: document.getElementById('cap-type').value,
+        timeout: Number(document.getElementById('cap-timeout').value || 60),
+        action_on_fail: document.getElementById('cap-fail-action').value,
+        auto_delete_prompt: document.getElementById('cap-auto-delete').checked
+      };
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/captcha`, payload);
+      await refreshAllGroupData();
+      showToast('入群人机验证配置已保存');
+    }
+
+    // --- 6.3 独立消息模板库 & 入群欢迎 (Templates & Welcome) ---
+    function populateTemplatesView() {
+      const listContainer = document.getElementById('templates-list-container');
+      const selectEl = document.getElementById('wel-template-select');
+      if (!listContainer || !selectEl) return;
+
+      selectEl.innerHTML = appState.templates.map(t =>
+        `<option value="${t.template_id}">${escapeHtml(t.template_name)} ${t.group_id ? '(本群专属)' : '(系统全局)'}</option>`
+      ).join('');
+
+      listContainer.innerHTML = appState.templates.map(t => `
+        <div class="p-3 rounded-xl bg-slate-950/75 border border-slate-800 flex flex-col justify-between gap-2">
+          <div>
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold text-white">${escapeHtml(t.template_name)}</span>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">${t.media_type || 'none'}</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1 line-clamp-2">${escapeHtml(t.content)}</p>
+          </div>
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
+            <button type="button" onclick="loadTemplateIntoEditor(${t.template_id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-sky-300">编辑</button>
+            ${t.group_id ? `<button type="button" onclick="deleteTemplateItem(${t.template_id})" class="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-[11px] text-rose-300">删除</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+
+      if (!document.getElementById('tpl-name').value && appState.templates.length > 0) {
+        loadTemplateIntoEditor(appState.templates[0].template_id);
+      }
+    }
+
+    function loadTemplateIntoEditor(tid) {
+      const tpl = appState.templates.find(t => t.template_id === Number(tid));
+      if (!tpl) return;
+      document.getElementById('tpl-id-hidden').value = String(tpl.template_id);
+      document.getElementById('tpl-name').value = tpl.template_name || '';
+      document.getElementById('tpl-media-type').value = tpl.media_type || 'none';
+      document.getElementById('tpl-media-source').value = tpl.media_source || '';
+      document.getElementById('tpl-content').value = tpl.content || '';
+      document.getElementById('tpl-buttons-json').value = tpl.buttons_json || JSON.stringify(tpl.buttons || []);
+      document.getElementById('tpl-editing-badge').textContent = `正在编辑 ID=${tpl.template_id}`;
+    }
+
+    function resetTemplateEditor() {
+      document.getElementById('tpl-id-hidden').value = '';
+      document.getElementById('tpl-name').value = '';
+      document.getElementById('tpl-media-type').value = 'none';
+      document.getElementById('tpl-media-source').value = '';
+      document.getElementById('tpl-content').value = '🎉 欢迎 {mention} 加入 <b>{group_title}</b>！';
+      document.getElementById('tpl-buttons-json').value = '[[{"text":"📖 群规必读","url":"https://telegram.org"}]]';
+      document.getElementById('tpl-editing-badge').textContent = '新建模板模式';
+    }
+
+    function insertTplVar(token) {
+      const area = document.getElementById('tpl-content');
+      if (!area) return;
+      const start = area.selectionStart || area.value.length;
+      const end = area.selectionEnd || area.value.length;
+      area.value = area.value.slice(0, start) + token + area.value.slice(end);
+      area.focus();
+    }
+
+    async function saveTemplateItem() {
+      const name = (document.getElementById('tpl-name').value || '').trim();
+      const content = (document.getElementById('tpl-content').value || '').trim();
+      if (!name || !content) {
+        showToast('模板名称与正文内容不能为空', 'error');
+        return;
+      }
+      let parsedButtons = [];
+      const rawBtn = (document.getElementById('tpl-buttons-json').value || '').trim();
+      if (rawBtn) {
+        try {
+          parsedButtons = JSON.parse(rawBtn);
+        } catch (err) {
+          showToast('按钮 JSON 格式有误，请检查括号与引号', 'error');
+          return;
+        }
+      }
+      const tidVal = document.getElementById('tpl-id-hidden').value;
+      const payload = {
+        template_id: tidVal ? Number(tidVal) : null,
+        template_name: name,
+        media_type: document.getElementById('tpl-media-type').value,
+        media_source: document.getElementById('tpl-media-source').value.trim(),
+        content,
+        buttons: parsedButtons
+      };
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/templates`, payload);
+      await refreshAllGroupData();
+      showToast('消息模板已保存');
+    }
+
+    async function deleteTemplateItem(tid) {
+      await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/templates/${tid}`);
+      await refreshAllGroupData();
+      showToast('模板已删除');
+    }
+
+    function populateWelcomeForm() {
+      const w = appState.welcome || {};
+      document.getElementById('wel-enabled').checked = w.enabled !== undefined ? !!w.enabled : true;
+      document.getElementById('wel-clean-prev').checked = w.clean_previous !== undefined ? !!w.clean_previous : true;
+      document.getElementById('wel-delete-ttl').value = w.delete_ttl ?? 120;
+      if (w.active_template_id) {
+        document.getElementById('wel-template-select').value = String(w.active_template_id);
+      }
+      renderWelcomePreview();
+    }
+
+    function renderWelcomePreview() {
+      const previewEl = document.getElementById('welcome-live-preview');
+      if (!previewEl) return;
+      const selectedTid = Number(document.getElementById('wel-template-select').value || 1);
+      const tpl = appState.templates.find(t => t.template_id === selectedTid) || appState.templates[0];
+      if (!tpl) {
+        previewEl.innerHTML = '<div class="text-slate-400">尚未选择模板</div>';
+        return;
+      }
+      const grp = appState.groups.find(g => g.group_id === appState.activeGroupId) || { group_title: '示例技术群' };
+      const renderedText = (tpl.content || '')
+        .replace(/\{username\}/g, '@Alice_Dev')
+        .replace(/\{fullname\}/g, 'Alice')
+        .replace(/\{mention\}/g, '<span class="text-sky-400 underline">@Alice</span>')
+        .replace(/\{user_id\}/g, '61928374')
+        .replace(/\{group_title\}/g, escapeHtml(grp.group_title))
+        .replace(/\n/g, '<br/>');
+
+      let buttons = [];
+      try {
+        buttons = JSON.parse(tpl.buttons_json || '[]');
+      } catch (e) {}
+
+      const btnHtml = buttons.map(row => `
+        <div class="grid grid-cols-${Math.max(1, row.length)} gap-1.5 pt-1">
+          ${row.map(b => `<div class="py-1.5 px-2 rounded-lg bg-slate-800/90 border border-slate-700 text-center text-sky-300 font-medium truncate">🔗 ${escapeHtml(b.text)}</div>`).join('')}
+        </div>
+      `).join('');
+
+      previewEl.innerHTML = `
+        <div class="space-y-2">
+          <div class="text-slate-100 leading-relaxed">${renderedText}</div>
+          ${btnHtml}
+        </div>
+      `;
+    }
+
+    async function saveWelcomeSettings() {
+      const payload = {
+        enabled: document.getElementById('wel-enabled').checked,
+        active_template_id: Number(document.getElementById('wel-template-select').value || 1),
+        delete_ttl: Number(document.getElementById('wel-delete-ttl').value || 120),
+        clean_previous: document.getElementById('wel-clean-prev').checked
+      };
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/welcome`, payload);
+      await refreshAllGroupData();
+      showToast('入群欢迎配置已保存');
+    }
+
+    // --- 6.4 本地 Ollama AI 配置 (LLM) ---
+    function populateLLMForm() {
+      const l = appState.llm || {};
+      document.getElementById('llm-enabled').checked = !!l.enabled;
+      document.getElementById('llm-base-url').value = l.base_url || 'http://host.docker.internal:11434';
+      document.getElementById('llm-model-name').value = l.model_name || 'qwen2.5:7b';
+      document.getElementById('llm-system-prompt').value = l.system_prompt || '你是一个群组智能管家，性格幽默、有问必答、语气简短有力。';
+      document.getElementById('llm-trig-mention').checked = l.trigger_on_mention !== undefined ? !!l.trigger_on_mention : true;
+      document.getElementById('llm-trig-reply').checked = l.trigger_on_reply !== undefined ? !!l.trigger_on_reply : true;
+      document.getElementById('llm-trig-keywords').value = l.trigger_keywords || '';
+      document.getElementById('llm-ctx-enabled').checked = l.context_enabled !== undefined ? !!l.context_enabled : true;
+      document.getElementById('llm-ctx-mode').value = l.context_mode || 'user_isolated';
+      document.getElementById('llm-ctx-limit').value = l.context_limit ?? 6;
+      document.getElementById('llm-history-count').textContent = String(l.history_count ?? 0);
+    }
+
+    async function saveLLMSettings() {
+      const payload = {
+        enabled: document.getElementById('llm-enabled').checked,
+        base_url: document.getElementById('llm-base-url').value.trim(),
+        model_name: document.getElementById('llm-model-name').value.trim(),
+        system_prompt: document.getElementById('llm-system-prompt').value.trim(),
+        trigger_on_mention: document.getElementById('llm-trig-mention').checked,
+        trigger_on_reply: document.getElementById('llm-trig-reply').checked,
+        trigger_keywords: document.getElementById('llm-trig-keywords').value.trim(),
+        context_enabled: document.getElementById('llm-ctx-enabled').checked,
+        context_mode: document.getElementById('llm-ctx-mode').value,
+        context_limit: Number(document.getElementById('llm-ctx-limit').value || 6)
+      };
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/llm`, payload);
+      await refreshAllGroupData();
+      showToast('本地 Ollama AI 配置已保存');
+    }
+
+    async function clearLLMHistory() {
+      await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/llm/history`);
+      await refreshAllGroupData();
+      showToast('本群 AI 对话记忆已清空');
+    }
+
+    // --- 6.5 紧急模式与权限 (Emergency) ---
+    function populateEmergencyForm() {
+      const e = appState.emergency || {};
+      document.getElementById('emg-lockdown').checked = !!e.lockdown_mode;
+      document.getElementById('emg-raid').checked = !!e.raid_protection;
+      document.getElementById('emg-admin-call').checked = e.enable_admin_call !== undefined ? !!e.enable_admin_call : true;
+      document.getElementById('emg-notify-dm').checked = !!e.notify_admins_dm;
+    }
+
+    async function saveEmergencySettings() {
+      const payload = {
+        lockdown_mode: document.getElementById('emg-lockdown').checked,
+        raid_protection: document.getElementById('emg-raid').checked,
+        enable_admin_call: document.getElementById('emg-admin-call').checked,
+        notify_admins_dm: document.getElementById('emg-notify-dm').checked
+      };
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/emergency`, payload);
+      await refreshAllGroupData();
+      showToast('紧急模式与权限配置已更新');
+    }
+
+    // --- 6.6 操作日志与审计 (Logs) ---
+    async function loadAuditLogs() {
+      const res = await apiRequest('GET', `/api/group/${appState.activeGroupId}/logs`);
+      appState.logs = (res && res.logs) || [];
+      renderAuditLogs();
+    }
+
+    function renderAuditLogs() {
+      const container = document.getElementById('audit-logs-container');
+      if (!container) return;
+      if (!appState.logs || appState.logs.length === 0) {
+        container.innerHTML = `<div class="p-6 text-center text-xs text-slate-500">当前群组暂无审计日志流水</div>`;
+        return;
+      }
+      container.innerHTML = appState.logs.map(item => `
+        <div class="p-3 rounded-xl bg-slate-950/70 border border-slate-800/90 flex flex-col gap-1">
+          <div class="flex items-center justify-between text-[11px]">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-sky-400">${escapeHtml(item.operator_name)}</span>
+              <span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">${escapeHtml(item.action_type)}</span>
+            </div>
+            <span class="text-slate-500">${escapeHtml(item.created_at || '')}</span>
+          </div>
+          <p class="text-xs text-slate-200">${escapeHtml(item.detail)}</p>
+        </div>
+      `).join('');
+    }
+
+    // --- 6.7 配置导入与导出 (Portability) ---
+    async function exportCurrentGroupJSON(silent = false) {
+      const data = await apiRequest('GET', `/api/group/${appState.activeGroupId}/export`);
+      const box = document.getElementById('portability-json-box');
+      if (box) box.value = JSON.stringify(data, null, 2);
+      if (!silent) showToast('已生成当前群组全量配置 JSON');
+    }
+
+    function copyExportedJSON() {
+      const box = document.getElementById('portability-json-box');
+      if (!box || !box.value) return;
+      box.select();
+      try {
+        document.execCommand('copy');
+        showToast('配置 JSON 已复制到剪贴板');
+      } catch (e) {
+        showToast('复制失败，请手动全选复制', 'error');
+      }
+    }
+
+    async function applyImportedJSON() {
+      const box = document.getElementById('portability-json-box');
+      if (!box || !box.value.trim()) {
+        showToast('请先粘贴有效的群组配置 JSON', 'error');
+        return;
+      }
+      let parsed = null;
+      try {
+        parsed = JSON.parse(box.value);
+      } catch (err) {
+        showToast('JSON 语法解析失败，请检查格式', 'error');
+        return;
+      }
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/import`, parsed);
+      await refreshAllGroupData();
+      showToast('配置 JSON 已成功导入并覆盖当前群组');
+    }
+
+    // ==================== 7. 底部群组切换弹窗 ====================
+    function toggleGroupSwitcherModal(show) {
+      const modal = document.getElementById('group-switcher-modal');
+      if (!modal) return;
+      if (show) {
+        renderGroupSwitcherList();
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      } else {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    }
+
+    function renderGroupSwitcherList() {
+      const listEl = document.getElementById('group-switcher-list');
+      if (!listEl) return;
+      listEl.innerHTML = appState.groups.map(g => {
+        const isCurrent = g.group_id === appState.activeGroupId;
+        return `
+          <button
+            type="button"
+            onclick="selectActiveGroup(${g.group_id})"
+            class="w-full p-3 rounded-xl border text-left flex items-center justify-between transition ${
+              isCurrent
+                ? 'bg-sky-500/15 border-sky-500/50 text-white'
+                : 'bg-slate-950/70 border-slate-800 hover:bg-slate-800 text-slate-200'
+            }"
+          >
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center font-bold text-xs text-sky-400 shrink-0">
+                ${escapeHtml(g.group_title.slice(0, 2).toUpperCase())}
+              </div>
+              <div class="min-w-0">
+                <div class="text-xs font-bold truncate">${escapeHtml(g.group_title)}</div>
+                <div class="text-[11px] text-slate-400 font-mono">ID: ${g.group_id}</div>
+              </div>
+            </div>
+            ${isCurrent ? '<span class="text-xs font-semibold text-sky-400 shrink-0">✓ 当前激活</span>' : '<span class="text-xs text-slate-500 shrink-0">点击切换</span>'}
+          </button>
+        `;
+      }).join('');
+    }
+
+    async function selectActiveGroup(groupId) {
+      appState.activeGroupId = Number(groupId);
+      toggleGroupSwitcherModal(false);
+      await refreshAllGroupData();
+      showToast('已切换当前管理群组');
+    }
+
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
