@@ -198,6 +198,22 @@
   <!-- 主内容容器 -->
   <main class="max-w-3xl mx-auto px-4 pt-4 space-y-4">
 
+    <!-- ==================== 视图 empty: 未接入任何群组 ==================== -->
+    <section id="view-empty" class="hidden space-y-4">
+      <div class="p-6 rounded-3xl bg-gradient-to-br from-violet-500/20 via-[#171430] to-fuchsia-500/10 border border-violet-400/25 text-center shadow-lg shadow-violet-500/10">
+        <div class="text-4xl mb-3">📭</div>
+        <h2 class="text-lg font-bold text-white">还没有接入群组</h2>
+        <p class="text-sm text-slate-400 mt-2 leading-relaxed">机器人还没有收到任何群组的消息，所以这里是空的。<br>按下面三步接上群组，然后点“重新检查”：</p>
+        <ol class="text-left text-sm text-slate-300 mt-4 space-y-2 bg-white/5 rounded-2xl p-4 border border-white/10">
+          <li>1️⃣ 把机器人拉进你的群聊</li>
+          <li>2️⃣ 在群里把机器人设为管理员（需要“删除消息”权限）</li>
+          <li>3️⃣ 在群里发一条消息，比如 <code class="text-violet-300 font-mono">/start</code></li>
+        </ol>
+        <button type="button" onclick="initApp()" class="mt-5 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-600 text-white text-sm font-semibold shadow-lg shadow-violet-500/30 hover:opacity-90 transition">🔄 重新检查</button>
+        <p class="text-xs text-slate-500 mt-3">提示：机器人重启或重新部署后，需要群里再发一条消息才会重新出现。</p>
+      </div>
+    </section>
+
     <!-- ==================== 视图 0: 中枢卡片列表 (8 大功能子入口) ==================== -->
     <section id="view-hub" class="space-y-4">
       <!-- 顶部群组运行状态速览条 -->
@@ -2203,7 +2219,7 @@
     // ==================== 4. 视图路由与中枢卡片渲染 ====================
     function navigateToView(viewId) {
       appState.currentView = viewId;
-      const allViews = ['hub', 'moderation', 'captcha', 'welcome', 'llm', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons'];
+      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons'];
       allViews.forEach(v => {
         const sec = document.getElementById(`view-${v}`);
         if (sec) sec.classList.toggle('hidden', v !== viewId);
@@ -2221,6 +2237,12 @@
         if (categoryTabs) categoryTabs.classList.remove('hidden');
         headerTitle.textContent = '群管与 AI 控制中枢';
         renderHubCards();
+      } else if (viewId === 'empty') {
+        backBtn.classList.add('hidden');
+        backBtn.classList.remove('flex');
+        searchContainer.classList.add('hidden');
+        if (categoryTabs) categoryTabs.classList.add('hidden');
+        headerTitle.textContent = '群管与 AI 控制中枢';
       } else {
         backBtn.classList.remove('hidden');
         backBtn.classList.add('flex');
@@ -2411,15 +2433,29 @@
       }
 
       const groupsRes = await apiRequest('GET', '/api/groups');
-      appState.groups = (groupsRes && groupsRes.groups && groupsRes.groups.length > 0)
-        ? groupsRes.groups
-        : mockStore.groups;
-
-      appState.activeGroupId = appState.groups[0].group_id;
-      await refreshAllGroupData();
+      const liveGroups = (groupsRes && groupsRes.groups) || [];
+      if (liveGroups.length > 0) {
+        // 真实后端返回了群组：用真实数据
+        appState.groups = liveGroups;
+        appState.activeGroupId = appState.groups[0].group_id;
+        await refreshAllGroupData();
+      } else if (appState.isLiveBackend) {
+        // 真实后端、但库里没有任何群组（比如刚部署、数据库被清空）：
+        // 千万不要用演示数据冒充，必须显示空状态，让用户去群里发消息重新接入
+        appState.groups = [];
+        appState.activeGroupId = null;
+        navigateToView('empty');
+      } else {
+        // 沙盒预览模式（没有真实后端）才用演示数据
+        appState.groups = mockStore.groups;
+        appState.activeGroupId = appState.groups[0].group_id;
+        await refreshAllGroupData();
+      }
     }
 
     async function refreshAllGroupData() {
+      // 没有接入群组时不拉取任何群配置，避免请求 /api/group/null/* 后被演示数据冒充
+      if (!appState.activeGroupId) return;
       const gid = appState.activeGroupId;
       const [ov, cap, tpl, wel, mod, llm, emg, logs, wl, kw, sch, fs] = await Promise.all([
         apiRequest('GET', `/api/group/${gid}/overview`),
