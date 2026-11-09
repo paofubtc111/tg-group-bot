@@ -9,4 +9,4 @@ services:
       - key: BOT_TOKEN
         sync: false
       - key: WEBAPP_BASE_URL
-        value: https://tg-group-bot.onrender.com
+        value: https://tg-group-bot-wnqd.onrender.com
