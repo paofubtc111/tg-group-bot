@@ -262,7 +262,7 @@
         <div class="flex items-center justify-between border-b border-white/10 pb-3">
           <div>
             <h2 class="text-sm font-bold text-white flex items-center gap-2">🛡️ 外链、转发与自动警告策略</h2>
-            <p class="text-xs text-slate-400 mt-0.5">管理员（Admin/Creator）发言自动豁免，不触发拦截</p>
+            <p class="text-xs text-slate-400 mt-0.5">管理员默认豁免，不触发拦截；打开下方“连管理员也拦截”后管理员同样触发拦截（测试用）</p>
           </div>
           <button type="button" onclick="saveModerationSettings()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition shadow-md shadow-violet-500/25">
             保存审计策略
@@ -294,6 +294,14 @@
             <input id="mod-block-forwards" type="checkbox" class="w-4 h-4 accent-violet-500 rounded" />
           </label>
         </div>
+
+        <label class="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-400/25 cursor-pointer">
+          <div>
+            <div class="text-xs font-semibold text-amber-200">连管理员也拦截（测试用）</div>
+            <div class="text-[11px] text-slate-400">默认关：管理员发言自动豁免。打开后管理员发敏感词/链接也会被秒删，用于自测拦截是否生效；测完请关掉</div>
+          </div>
+          <input id="mod-moderate-admins" type="checkbox" class="w-4 h-4 accent-amber-500 rounded" />
+        </label>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           <div class="p-3 rounded-xl bg-black/25 border border-white/10 space-y-2">
@@ -719,6 +727,9 @@
           <button type="button" onclick="exportCurrentGroupJSON()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition">
             📤 生成当前群组配置 JSON
           </button>
+          <button type="button" onclick="downloadExportedJSON()" class="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/15 text-xs transition">
+            ⬇️ 下载 JSON 文件
+          </button>
           <button type="button" onclick="copyExportedJSON()" class="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/15 text-xs transition">
             📋 复制 JSON 到剪贴板
           </button>
@@ -778,6 +789,12 @@
             <input id="member-mute-minutes" type="number" min="1" max="43200" value="60" class="w-20 px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs text-right text-white field" />
             分钟
           </label>
+        </div>
+
+        <div class="flex flex-wrap gap-2 items-center p-3 rounded-xl bg-black/30 border border-white/10">
+          <input id="member-backfill-id" type="text" inputmode="numeric" placeholder="按 ID 补录成员：输入用户 ID（如 123456789）" class="flex-1 min-w-[200px] px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-white field" />
+          <button type="button" onclick="backfillMember()" class="px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 text-white font-semibold text-xs transition">补录该成员</button>
+          <span class="text-[11px] text-slate-500">只补录已在群里的沉默老成员（机器人不会自动知道他们）。不在群里、或输错 ID 会明确报错。</span>
         </div>
 
         <div id="members-list" class="space-y-2"></div>
@@ -1225,7 +1242,7 @@
         <div class="flex items-center justify-between border-b border-white/10 pb-3">
           <div>
             <h2 class="text-sm font-bold text-white flex items-center gap-2">🔒 定时关群与话术关群</h2>
-            <p class="text-xs text-slate-400 mt-0.5">每天固定时段自动锁群；群内说出关群话术立即锁群一段时间（管理员豁免触发）</p>
+            <p class="text-xs text-slate-400 mt-0.5">每天固定时段自动锁群；群内说出关群话术立即锁群一段时间（管理员默认豁免触发，勾选“管理员也可触发”后管理员说话也会锁群，仅用于测试）</p>
           </div>
         </div>
         <div class="p-3 rounded-xl bg-black/30 border border-white/10 space-y-3">
@@ -1244,6 +1261,7 @@
             <input id="lk-keyword" type="text" placeholder="关群关键词 (如：今晚休息)" class="sm:col-span-5 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-white field" />
             <input id="lk-minutes" type="number" min="1" value="30" placeholder="锁群分钟" class="sm:col-span-3 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-white field" />
             <button type="button" onclick="addLockdownKeyword()" class="sm:col-span-4 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 text-white font-semibold text-xs transition">添加关键词</button>
+            <label class="sm:col-span-12 flex items-center gap-1.5 text-xs text-slate-300"><input id="lk-allow-admin" type="checkbox" class="accent-amber-500" /> 管理员也可触发（测试用，默认关：管理员说话不锁群）</label>
           </div>
           <div id="lockdown-keywords-list" class="space-y-2"></div>
         </div>
@@ -1289,7 +1307,7 @@
         <div class="flex items-center justify-between border-b border-white/10 pb-3">
           <div>
             <h2 class="text-sm font-bold text-white flex items-center gap-2">🔘 群底部按钮</h2>
-            <p class="text-xs text-slate-400 mt-0.5">群内发送「广告」弹出自定义按钮，点击发送预设文字（可放消息、链接、图片等）</p>
+            <p class="text-xs text-slate-400 mt-0.5">在群里单独发送「广告」两个字（不能带标点/多字）才会弹出按钮；「官网」是按钮上显示的文字，不是触发词。按钮内容是点击后发送的文字</p>
           </div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 p-3 rounded-xl bg-black/30 border border-white/10">
@@ -1585,12 +1603,10 @@
     const mockStore = {
       user: { id: 88019283, first_name: 'Argon', username: 'argon_admin' },
       groups: [
-        { group_id: -1001889001, group_title: 'Web3 开发者与安全审计社区', is_active: true },
         { group_id: -1001889002, group_title: 'Ollama 本地大模型炼丹交流群', is_active: true },
         { group_id: -1001889003, group_title: '量化交易与高频策略研究院', is_active: true }
       ],
       captcha: {
-        '-1001889001': { group_id: -1001889001, enabled: true, captcha_type: 'math', timeout: 60, action_on_fail: 'kick', auto_delete_prompt: true },
         '-1001889002': { group_id: -1001889002, enabled: true, captcha_type: 'choice', timeout: 90, action_on_fail: 'kick', auto_delete_prompt: true },
         '-1001889003': { group_id: -1001889003, enabled: false, captcha_type: 'click', timeout: 60, action_on_fail: 'ban', auto_delete_prompt: true }
       },
@@ -1604,52 +1620,22 @@
           content: '🎉 欢迎新成员 {mention} 加入 <b>{group_title}</b>！\n\n🪪 您的 ID：<code>{user_id}</code>\n📌 请遵守群规，文明讨论，需要帮助可在群内 @AI 助手。',
           buttons_json: JSON.stringify([[{ text: '📖 阅读群规指南', url: 'https://telegram.org' }, { text: '🌐 官方网站', url: 'https://core.telegram.org/bots/webapps' }]])
         },
-        {
-          template_id: 2,
-          group_id: -1001889001,
-          template_name: '开发者社区新人指引模板',
-          media_type: 'none',
-          media_source: '',
-          content: '👋 欢迎开发者 {mention} ({username}) 来到 <b>{group_title}</b>！\n\n• 提问前请附上复现代码或报错日志\n• 发送 <code>ai 你的问题</code> 可直接唤醒本地 Qwen2.5 助手',
-          buttons_json: JSON.stringify([[{ text: '💻 GitHub 仓库', url: 'https://github.com' }]])
-        }
       ],
       welcome: {
-        '-1001889001': { group_id: -1001889001, enabled: true, active_template_id: 2, delete_ttl: 120, clean_previous: true },
         '-1001889002': { group_id: -1001889002, enabled: true, active_template_id: 1, delete_ttl: 90, clean_previous: true },
         '-1001889003': { group_id: -1001889003, enabled: true, active_template_id: 1, delete_ttl: 60, clean_previous: true }
       },
       moderation: {
-        '-1001889001': { group_id: -1001889001, block_tg_links: true, block_all_urls: false, block_forwards: false, send_warning_msg: true, warning_ttl: 5, max_warn_count: 3, warn_action: 'kick' },
         '-1001889002': { group_id: -1001889002, block_tg_links: true, block_all_urls: false, block_forwards: true, send_warning_msg: true, warning_ttl: 5, max_warn_count: 3, warn_action: 'mute' },
         '-1001889003': { group_id: -1001889003, block_tg_links: true, block_all_urls: true, block_forwards: true, send_warning_msg: true, warning_ttl: 10, max_warn_count: 2, warn_action: 'ban' }
       },
       rules: {
-        '-1001889001': [
-          { rule_id: 101, group_id: -1001889001, pattern: '免费领币', match_type: 'contains', punish_action: 'ban', mute_duration: 3600 },
-          { rule_id: 102, group_id: -1001889001, pattern: 'USDT跑分', match_type: 'contains', punish_action: 'kick', mute_duration: 3600 },
-          { rule_id: 103, group_id: -1001889001, pattern: '加微.*[0-9]{5,}', match_type: 'regex', punish_action: 'mute', mute_duration: 3600 }
-        ],
         '-1001889002': [
           { rule_id: 201, group_id: -1001889002, pattern: '代写外挂', match_type: 'contains', punish_action: 'delete_only', mute_duration: 3600 }
         ],
         '-1001889003': []
       },
       llm: {
-        '-1001889001': {
-          group_id: -1001889001,
-          enabled: true,
-          base_url: 'http://host.docker.internal:11434',
-          model_name: 'qwen2.5:7b',
-          system_prompt: '你是一个群组智能管家，性格幽默、有问必答、语气简短有力。',
-          trigger_on_mention: true,
-          trigger_on_reply: true,
-          trigger_keywords: 'ai ,小助手 ',
-          context_enabled: true,
-          context_mode: 'user_isolated',
-          context_limit: 6,
-          history_count: 18
-        },
         '-1001889002': {
           group_id: -1001889002,
           enabled: true,
@@ -1680,66 +1666,42 @@
         }
       },
       emergency: {
-        '-1001889001': { group_id: -1001889001, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: false },
         '-1001889002': { group_id: -1001889002, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: true },
         '-1001889003': { group_id: -1001889003, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: false }
       },
       logs: {
-        '-1001889001': [
-          { log_id: 3, operator_name: 'Argon', action_type: 'update_captcha', detail: '更新入群验证: 开启=true, 模式=math, 超时=60s', created_at: '2026-11-08 13:55:10' },
-          { log_id: 2, operator_name: 'AutoModerator', action_type: 'violation_ban', detail: '拦截用户 Spammer01 (7019283): 命中敏感词规则 [免费领币] -> 已永久封禁', created_at: '2026-11-08 13:42:04' },
-          { log_id: 1, operator_name: 'SystemCaptcha', action_type: 'captcha_timeout_kick', detail: '用户 9948172 入群验证超时，已执行 kick', created_at: '2026-11-08 13:20:51' }
-        ],
         '-1001889002': [
           { log_id: 4, operator_name: 'Argon', action_type: 'update_llm', detail: '更新 Ollama AI 配置: 开启=true, 模型=qwen2.5:7b', created_at: '2026-11-08 12:15:00' }
         ],
         '-1001889003': []
       },
       whitelist: {
-        '-1001889001': [
-          { group_id: -1001889001, user_id: 88010001, username: 'official_bot', note: '官方客服账号', created_at: '2026-11-08 10:00:00' }
-        ],
         '-1001889002': [],
         '-1001889003': []
       },
       members: {
-        '-1001889001': [
-          { group_id: -1001889001, user_id: 88019283, username: 'argon_admin', first_name: 'Argon', is_admin: 1, message_count: 128, last_seen: '2026-11-09 17:30:00', joined_at: '2026-11-01 09:00:00' },
-          { group_id: -1001889001, user_id: 61928374, username: 'Alice_Dev', first_name: 'Alice', is_admin: 0, message_count: 96, last_seen: '2026-11-09 17:25:00', joined_at: '2026-11-02 10:12:00' },
-          { group_id: -1001889001, user_id: 7019283, username: 'Spammer01', first_name: 'Spammer', is_admin: 0, message_count: 3, last_seen: '2026-11-08 13:42:00', joined_at: '2026-11-08 13:40:00' }
-        ],
         '-1001889002': [],
         '-1001889003': []
       },
       messages: {
-        '-1001889001': [
-          { id: 3, group_id: -1001889001, message_id: 9003, user_id: 61928374, username: 'Alice_Dev', text: '请问群规在哪里看？', created_at: '2026-11-09 17:25:00' },
-          { id: 2, group_id: -1001889001, message_id: 9002, user_id: 88019283, username: 'argon_admin', text: '欢迎大家加入，提问前请先看置顶群规。', created_at: '2026-11-09 17:10:00' },
-          { id: 1, group_id: -1001889001, message_id: 9001, user_id: 61928374, username: 'Alice_Dev', text: '大家好，我是新来的开发者。', created_at: '2026-11-09 16:58:00' }
-        ],
         '-1001889002': [],
         '-1001889003': []
       },
       keywordReplies: {
-        '-1001889001': [
-          { reply_id: 1, group_id: -1001889001, keyword: '群规', match_type: 'contains', reply_text: '📖 群规：禁止广告、禁止刷屏，违规三次移出群聊。', enabled: 1, created_at: '2026-11-08 11:00:00' },
-          { reply_id: 2, group_id: -1001889001, keyword: '价格', match_type: 'contains', reply_text: '💰 当前价格请查看置顶消息或咨询管理员。', enabled: 1, created_at: '2026-11-08 11:05:00' }
-        ],
         '-1001889002': [],
         '-1001889003': []
       },
       scheduled: {
-        '-1001889001': [
-          { id: 1, group_id: -1001889001, content: '🌅 早安！今日签到开始，记得查看置顶公告。', send_time: '09:00', enabled: 1, last_sent_date: '2026-11-09', created_at: '2026-11-08 11:10:00' }
-        ],
         '-1001889002': [],
         '-1001889003': []
       },
       forceSub: {
-        '-1001889001': { group_id: -1001889001, enabled: 1, channel: '@demo_channel', prompt_text: '请先加入我们的官方频道 @demo_channel 后再发言。' },
         '-1001889002': { group_id: -1001889002, enabled: 0, channel: '', prompt_text: '请先加入指定频道后再发言。' },
         '-1001889003': { group_id: -1001889003, enabled: 0, channel: '', prompt_text: '请先加入指定频道后再发言。' }
-      }
+      },
+      scheduledLockdowns: {},
+      lockdownKeywords: {},
+      bottomButtons: {}
     };
 
     const appState = {
@@ -1749,7 +1711,7 @@
       categoryFilter: 'all',
       currentUser: mockStore.user,
       groups: [],
-      activeGroupId: -1001889001,
+      activeGroupId: null,
       overview: null,
       captcha: null,
       templates: [],
@@ -1799,19 +1761,33 @@
     };
 
     // ==================== 2. 统一 API 通信与沙盒自适应降级层 ====================
+    // 统一 API 通信: 演示数据 (mock) 只在“明确处于预览模式”时用,
+    // 即从未连上过真实后端 (沙盒静态预览)。一旦连通过真实后端,
+    // 写请求 (POST/PUT/DELETE) 失败必须抛错, 绝不能静默落到 mock 假装成功
+    // (否则面板 toast“已添加”, 实际根本没存进数据库)。
     async function apiRequest(method, path, body = null) {
       const headers = {
         'Content-Type': 'application/json',
         'X-Telegram-Init-Data': rawInitData || 'dev'
       };
+      const isWrite = method === 'POST' || method === 'PUT' || method === 'DELETE';
       // 在 http/https 环境下尝试请求 FastAPI 服务端
       if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        let resp = null;
         try {
-          const resp = await fetch(path, {
+          resp = await fetch(path, {
             method,
             headers,
             body: body ? JSON.stringify(body) : undefined
           });
+        } catch (err) {
+          // 连不上后端: 只有从未连通过 (预览模式) 才走 mock;
+          // 曾经连通过、现在断了, 写请求必须报错, 不能用 mock 冒充成功
+          if (appState.isLiveBackend) {
+            throw new Error('后端连接失败，请检查网络后重试');
+          }
+        }
+        if (resp) {
           if (resp.ok) {
             const contentType = resp.headers.get('content-type') || '';
             if (contentType.includes('application/json')) {
@@ -1819,14 +1795,45 @@
               updateConnectionBadge(true);
               return await resp.json();
             }
+          } else {
+            // 连上了真实后端, 但它报错 (如 400/401/404/500):
+            // 写请求必须抛错; 读请求且曾经连通过也抛错, 否则会用演示数据冒充
+            if (isWrite || appState.isLiveBackend) {
+              let detail = '';
+              try {
+                const data = await resp.json();
+                detail = data.detail || data.message || '';
+              } catch (e) { /* 非 JSON 报错体, 忽略 */ }
+              throw new Error(detail || `请求失败 (${resp.status})`);
+            }
           }
-        } catch (err) {
-          // 降级到前端沙盒状态机
         }
       }
       appState.isLiveBackend = false;
       updateConnectionBadge(false);
       return mockApiRouter(method, path, body);
+    }
+
+    // 未捕获的异步请求失败也给用户一句明确提示, 而不是静默失败
+    window.addEventListener('unhandledrejection', (event) => {
+      const msg = (event.reason && event.reason.message) || '请求失败';
+      if (typeof showToast === 'function') showToast(msg, 'error');
+    });
+
+    // 未选群时添加类按钮拒绝执行 (activeGroupId 为 null 时)
+    function requireActiveGroup() {
+      if (!appState.activeGroupId) {
+        showToast('请先选择群组', 'error');
+        return false;
+      }
+      return true;
+    }
+
+    // 保存成功后回显用: “群名（-100…）”
+    function activeGroupLabel() {
+      const g = (appState.groups || []).find(x => x.group_id === appState.activeGroupId);
+      const title = g ? (g.group_title || '') : '';
+      return title ? `${title}（${appState.activeGroupId}）` : `群组 ${appState.activeGroupId}`;
     }
 
     function updateConnectionBadge(isLive) {
@@ -1962,9 +1969,10 @@
             send_warning_msg: body.send_warning_msg,
             warning_ttl: body.warning_ttl,
             max_warn_count: body.max_warn_count,
-            warn_action: body.warn_action
+            warn_action: body.warn_action,
+            moderate_admins: body.moderate_admins ? 1 : 0
           };
-          if (Array.isArray(body.rules)) {
+          if (Array.isArray(body.rules) && body.rules.length > 0) {
             mockStore.rules[gKey] = body.rules.map((r, i) => ({
               rule_id: r.rule_id || (Date.now() + i),
               group_id: gid,
@@ -2157,25 +2165,117 @@
       if (sub === 'rotating-ads') return { ads: [], settings: { group_id: gid, enabled: 0, interval_minutes: 60, display_seconds: 0 } };
       if (sub === 'rotating-ads-settings') return { settings: { group_id: gid, enabled: 0, interval_minutes: 60, display_seconds: 0 } };
       if (sub === 'invites') return { leaderboard: [], total: 0, recent: [] };
-      if (sub === 'scheduled-lockdowns') return { lockdowns: [] };
-      if (sub === 'lockdown-keywords') return { keywords: [] };
+      if (sub === 'scheduled-lockdowns') {
+        if (!mockStore.scheduledLockdowns[gKey]) mockStore.scheduledLockdowns[gKey] = [];
+        if (method === 'POST' && body) {
+          if (body.start_time === body.end_time) throw new Error('开始时间不能等于结束时间 (否则该规则永远不触发)');
+          if (body.id) {
+            const idx = mockStore.scheduledLockdowns[gKey].findIndex(s => s.id === Number(body.id));
+            if (idx >= 0) mockStore.scheduledLockdowns[gKey][idx] = { ...mockStore.scheduledLockdowns[gKey][idx], start_time: body.start_time, end_time: body.end_time, enabled: body.enabled ? 1 : 0 };
+          } else {
+            mockStore.scheduledLockdowns[gKey].push({ id: Date.now() % 100000, group_id: gid, start_time: body.start_time, end_time: body.end_time, enabled: body.enabled ? 1 : 0, created_at: new Date().toISOString().replace('T', ' ').slice(0, 19) });
+          }
+          pushMockLog(gid, 'save_scheduled_lockdown', `保存定时关群: ${body.start_time}-${body.end_time}`);
+          const saved = body.id
+            ? mockStore.scheduledLockdowns[gKey].find(s => s.id === Number(body.id))
+            : mockStore.scheduledLockdowns[gKey][mockStore.scheduledLockdowns[gKey].length - 1];
+          return { status: 'ok', lockdown: saved };
+        }
+        return { lockdowns: mockStore.scheduledLockdowns[gKey] };
+      }
+      if (sub.startsWith('scheduled-lockdowns/') && method === 'DELETE') {
+        const lid = Number(sub.split('/')[1]);
+        mockStore.scheduledLockdowns[gKey] = (mockStore.scheduledLockdowns[gKey] || []).filter(s => s.id !== lid);
+        pushMockLog(gid, 'delete_scheduled_lockdown', `删除定时关群 ID=${lid}`);
+        return { status: 'ok', deleted_id: lid };
+      }
+      if (sub === 'lockdown-keywords') {
+        if (!mockStore.lockdownKeywords[gKey]) mockStore.lockdownKeywords[gKey] = [];
+        if (method === 'POST' && body) {
+          if (body.id) {
+            const idx = mockStore.lockdownKeywords[gKey].findIndex(k => k.id === Number(body.id));
+            if (idx >= 0) mockStore.lockdownKeywords[gKey][idx] = { ...mockStore.lockdownKeywords[gKey][idx], keyword: body.keyword, lock_minutes: body.lock_minutes, enabled: body.enabled ? 1 : 0, allow_admin_trigger: body.allow_admin_trigger ? 1 : 0 };
+          } else {
+            mockStore.lockdownKeywords[gKey].unshift({ id: Date.now() % 100000, group_id: gid, keyword: body.keyword, lock_minutes: body.lock_minutes, enabled: body.enabled ? 1 : 0, allow_admin_trigger: body.allow_admin_trigger ? 1 : 0, created_at: new Date().toISOString().replace('T', ' ').slice(0, 19) });
+          }
+          pushMockLog(gid, 'save_lockdown_keyword', `保存话术关群关键词: ${body.keyword}`);
+          const saved = body.id
+            ? mockStore.lockdownKeywords[gKey].find(k => k.id === Number(body.id))
+            : mockStore.lockdownKeywords[gKey][0];
+          return { status: 'ok', keyword: saved };
+        }
+        return { keywords: mockStore.lockdownKeywords[gKey] };
+      }
+      if (sub.startsWith('lockdown-keywords/') && method === 'DELETE') {
+        const kid = Number(sub.split('/')[1]);
+        mockStore.lockdownKeywords[gKey] = (mockStore.lockdownKeywords[gKey] || []).filter(k => k.id !== kid);
+        pushMockLog(gid, 'delete_lockdown_keyword', `删除话术关群关键词 ID=${kid}`);
+        return { status: 'ok', deleted_id: kid };
+      }
       if (sub === 'leave-ban') return { leave_ban: { group_id: gid, enabled: 0 } };
       if (sub === 'rename-watch') return { rename_watch: { group_id: gid, enabled: 0 } };
-      if (sub === 'bottom-buttons') return { buttons: [] };
+      if (sub === 'bottom-buttons') {
+        if (!mockStore.bottomButtons[gKey]) mockStore.bottomButtons[gKey] = [];
+        if (method === 'POST' && body) {
+          if (body.id) {
+            const idx = mockStore.bottomButtons[gKey].findIndex(b => b.id === Number(body.id));
+            if (idx >= 0) mockStore.bottomButtons[gKey][idx] = { ...mockStore.bottomButtons[gKey][idx], button_text: body.button_text, reply_text: body.reply_text, enabled: body.enabled ? 1 : 0 };
+          } else {
+            mockStore.bottomButtons[gKey].push({ id: Date.now() % 100000, group_id: gid, button_text: body.button_text, reply_text: body.reply_text, enabled: body.enabled ? 1 : 0, created_at: new Date().toISOString().replace('T', ' ').slice(0, 19) });
+          }
+          pushMockLog(gid, 'save_bottom_button', `保存底部按钮: ${body.button_text}`);
+          const saved = body.id
+            ? mockStore.bottomButtons[gKey].find(b => b.id === Number(body.id))
+            : mockStore.bottomButtons[gKey][mockStore.bottomButtons[gKey].length - 1];
+          return { status: 'ok', button: saved };
+        }
+        return { buttons: mockStore.bottomButtons[gKey] };
+      }
+      if (sub.startsWith('bottom-buttons/') && method === 'DELETE') {
+        const bid = Number(sub.split('/')[1]);
+        mockStore.bottomButtons[gKey] = (mockStore.bottomButtons[gKey] || []).filter(b => b.id !== bid);
+        pushMockLog(gid, 'delete_bottom_button', `删除底部按钮 ID=${bid}`);
+        return { status: 'ok', deleted_id: bid };
+      }
       if (sub === 'misc-settings') return { misc_settings: { group_id: gid, auto_delete_join: 1, auto_delete_leave: 1, auto_delete_pinned_notice: 1, auto_delete_promotion: 0, cancel_channel_pin: 0, calculator: 0, auto_check_u: 0 } };
       if (sub === 'dashboard') return { messages_today: 0, joins_today: 0, leaves_today: 0, kicks_today: 0, signins_today: 0, verifications_today: 0 };
       if (sub === 'export') {
         return {
-          version: '1.0',
+          version: '1.1',
           source_group_id: gid,
           captcha: mockStore.captcha[gKey],
           welcome: mockStore.welcome[gKey],
           moderation: { ...(mockStore.moderation[gKey] || {}), rules: mockStore.rules[gKey] || [] },
           llm: mockStore.llm[gKey],
-          emergency: mockStore.emergency[gKey]
+          emergency: mockStore.emergency[gKey],
+          templates: (mockStore.templates || []).filter(t => t.group_id === null || t.group_id === gid).map(t => {
+            let buttons = [];
+            try { buttons = JSON.parse(t.buttons_json || '[]'); } catch (e) { buttons = []; }
+            return { template_id: t.template_id, template_name: t.template_name, media_type: t.media_type, media_source: t.media_source || '', content: t.content, buttons };
+          })
         };
       }
       if (sub === 'import' && method === 'POST' && body) {
+        if (Array.isArray(body.templates)) {
+          const idMap = {};
+          body.templates.forEach((tpl, idx) => {
+            const newId = Date.now() % 100000 + idx;
+            if (tpl.template_id) idMap[tpl.template_id] = newId;
+            mockStore.templates.push({
+              template_id: newId,
+              group_id: gid,
+              template_name: tpl.template_name,
+              media_type: tpl.media_type,
+              media_source: tpl.media_source || '',
+              content: tpl.content,
+              buttons_json: JSON.stringify(tpl.buttons || []),
+              created_at: new Date().toISOString().replace('T', ' ').slice(0, 19)
+            });
+          });
+          if (body.welcome && idMap[body.welcome.active_template_id]) {
+            body.welcome.active_template_id = idMap[body.welcome.active_template_id];
+          }
+        }
         if (body.captcha) mockStore.captcha[gKey] = { group_id: gid, ...body.captcha };
         if (body.welcome) mockStore.welcome[gKey] = { group_id: gid, ...body.welcome };
         if (body.moderation) {
@@ -2445,11 +2545,16 @@
         appState.groups = [];
         appState.activeGroupId = null;
         navigateToView('empty');
-      } else {
+      } else if (mockStore.groups.length > 0) {
         // 沙盒预览模式（没有真实后端）才用演示数据
         appState.groups = mockStore.groups;
         appState.activeGroupId = appState.groups[0].group_id;
         await refreshAllGroupData();
+      } else {
+        // 预览模式也没有演示群组: 同样显示空状态, 不用假群冒充
+        appState.groups = [];
+        appState.activeGroupId = null;
+        navigateToView('empty');
       }
     }
 
@@ -2534,6 +2639,7 @@
       document.getElementById('mod-block-tg-links').checked = !!m.block_tg_links;
       document.getElementById('mod-block-all-urls').checked = !!m.block_all_urls;
       document.getElementById('mod-block-forwards').checked = !!m.block_forwards;
+      document.getElementById('mod-moderate-admins').checked = !!m.moderate_admins;
       document.getElementById('mod-send-warning').checked = m.send_warning_msg !== undefined ? !!m.send_warning_msg : true;
       document.getElementById('mod-warning-ttl').value = m.warning_ttl ?? 5;
       document.getElementById('mod-max-warn').value = m.max_warn_count ?? 3;
@@ -2621,6 +2727,7 @@
     }
 
     async function saveModerationSettings(batchKeywords = null) {
+      if (!requireActiveGroup()) return;
       const payload = {
         block_tg_links: document.getElementById('mod-block-tg-links').checked,
         block_all_urls: document.getElementById('mod-block-all-urls').checked,
@@ -2629,12 +2736,18 @@
         warning_ttl: Number(document.getElementById('mod-warning-ttl').value || 5),
         max_warn_count: Number(document.getElementById('mod-max-warn').value || 3),
         warn_action: document.getElementById('mod-warn-action').value,
+        moderate_admins: document.getElementById('mod-moderate-admins').checked,
         rules: appState.rules,
         batch_keywords: batchKeywords
       };
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/moderation`, payload);
+      try {
+        await apiRequest('POST', `/api/group/${appState.activeGroupId}/moderation`, payload);
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await refreshAllGroupData();
-      showToast('内容安全与敏感词策略已保存');
+      showToast(`内容安全与敏感词策略已保存到群 ${activeGroupLabel()}`);
     }
 
     // --- 6.2 入群人机验证 (CAPTCHA) ---
@@ -2956,10 +3069,35 @@
 
     // --- 6.7 配置导入与导出 (Portability) ---
     async function exportCurrentGroupJSON(silent = false) {
-      const data = await apiRequest('GET', `/api/group/${appState.activeGroupId}/export`);
+      if (!requireActiveGroup()) return;
+      let data;
+      try {
+        data = await apiRequest('GET', `/api/group/${appState.activeGroupId}/export`);
+      } catch (err) {
+        if (!silent) showToast('导出失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       const box = document.getElementById('portability-json-box');
       if (box) box.value = JSON.stringify(data, null, 2);
       if (!silent) showToast('已生成当前群组全量配置 JSON');
+    }
+
+    function downloadExportedJSON() {
+      const box = document.getElementById('portability-json-box');
+      if (!box || !box.value.trim()) {
+        showToast('请先点击“生成当前群组配置 JSON”', 'error');
+        return;
+      }
+      const blob = new Blob([box.value], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `group-config-${appState.activeGroupId || 'unknown'}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('配置 JSON 文件已开始下载');
     }
 
     function copyExportedJSON() {
@@ -2975,6 +3113,7 @@
     }
 
     async function applyImportedJSON() {
+      if (!requireActiveGroup()) return;
       const box = document.getElementById('portability-json-box');
       if (!box || !box.value.trim()) {
         showToast('请先粘贴有效的群组配置 JSON', 'error');
@@ -2987,7 +3126,12 @@
         showToast('JSON 语法解析失败，请检查格式', 'error');
         return;
       }
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/import`, parsed);
+      try {
+        await apiRequest('POST', `/api/group/${appState.activeGroupId}/import`, parsed);
+      } catch (err) {
+        showToast('导入失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await refreshAllGroupData();
       showToast('配置 JSON 已成功导入并覆盖当前群组');
     }
@@ -3126,6 +3270,32 @@
       }
     }
 
+    async function backfillMember() {
+      if (!requireActiveGroup()) return;
+      const raw = (document.getElementById('member-backfill-id').value || '').trim();
+      const userId = Number(raw);
+      if (!raw || !Number.isInteger(userId) || userId <= 0) {
+        showToast('请输入正确的用户 ID（纯数字）', 'error');
+        return;
+      }
+      let res;
+      try {
+        res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/members/backfill`, { user_id: userId });
+      } catch (err) {
+        showToast('补录失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
+      if (res && res.status === 'ok' && res.member) {
+        const m = res.member;
+        const name = m.username ? '@' + m.username : (m.first_name || userId);
+        showToast(`已补录成员 ${name}（${userId}）到群 ${activeGroupLabel()}`);
+        document.getElementById('member-backfill-id').value = '';
+        await loadMembers(appState.membersPage);
+      } else {
+        showToast('补录失败：服务端未返回成员信息', 'error');
+      }
+    }
+
     // --- 8.3 群消息管理 (Messages) ---
     function onMsgSearchInput() {
       appState.messagesQuery = (document.getElementById('msg-search-input').value || '').trim();
@@ -3224,19 +3394,30 @@
         return;
       }
       const editId = document.getElementById('kw-edit-id').value;
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/keyword-replies`, {
-        reply_id: editId ? Number(editId) : null,
-        keyword,
-        match_type: document.getElementById('kw-match-type').value,
-        reply_text: replyText,
-        enabled: true
-      });
+      let res;
+      try {
+        res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/keyword-replies`, {
+          reply_id: editId ? Number(editId) : null,
+          keyword,
+          match_type: document.getElementById('kw-match-type').value,
+          reply_text: replyText,
+          enabled: true
+        });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       document.getElementById('kw-edit-id').value = '';
       document.getElementById('kw-keyword').value = '';
       document.getElementById('kw-reply-text').value = '';
       await loadKeywordReplies();
       renderHubCards();
-      showToast('关键词自动回复已保存');
+      const newId = res && res.reply && res.reply.reply_id;
+      if (newId && !(appState.keywordReplies || []).some(r => r.reply_id === newId)) {
+        showToast('保存失败：服务端未返回该回复，请检查后重试', 'error');
+        return;
+      }
+      showToast(`关键词自动回复已保存到群 ${activeGroupLabel()}`);
     }
 
     function editKeywordReply(replyId) {
@@ -3313,15 +3494,26 @@
         showToast('请先填写定时发送的消息内容', 'error');
         return;
       }
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/scheduled`, {
-        content,
-        send_time: sendTime,
-        enabled: true
-      });
+      let res;
+      try {
+        res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/scheduled`, {
+          content,
+          send_time: sendTime,
+          enabled: true
+        });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       document.getElementById('sch-content').value = '';
       await loadScheduled();
       renderHubCards();
-      showToast(`定时任务已添加，每天 ${sendTime} 发送`);
+      const newId = res && res.scheduled && res.scheduled.id;
+      if (newId && !(appState.scheduled || []).some(s => s.id === newId)) {
+        showToast('保存失败：服务端未返回该任务，请检查后重试', 'error');
+        return;
+      }
+      showToast(`定时任务已保存到群 ${activeGroupLabel()}，每天 ${sendTime} 发送`);
     }
 
     async function toggleScheduled(sid, enabled) {
@@ -4086,27 +4278,53 @@
     }
 
     async function addScheduledLockdown() {
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/scheduled-lockdowns`, {
-        start_time: document.getElementById('sl-start').value || '00:00',
-        end_time: document.getElementById('sl-end').value || '07:00',
-        enabled: document.getElementById('sl-enabled').checked
-      });
+      if (!requireActiveGroup()) return;
+      const startTime = document.getElementById('sl-start').value || '00:00';
+      const endTime = document.getElementById('sl-end').value || '07:00';
+      if (startTime === endTime) { showToast('开始时间不能等于结束时间（否则该规则永远不触发）', 'error'); return; }
+      let res;
+      try {
+        res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/scheduled-lockdowns`, {
+          start_time: startTime,
+          end_time: endTime,
+          enabled: document.getElementById('sl-enabled').checked
+        });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await loadLockdowns();
       renderHubCards();
-      showToast('定时关群时段已添加');
+      // 保存后重新 GET 校验新 id 在列表里, 否则报错而不是“已添加”
+      const newId = res && res.lockdown && res.lockdown.id;
+      if (newId && !(appState.scheduledLockdowns || []).some(s => s.id === newId)) {
+        showToast('保存失败：服务端未返回该时段，请检查后重试', 'error');
+        return;
+      }
+      showToast(`定时关群时段已保存到群 ${activeGroupLabel()}`);
     }
 
     async function toggleScheduledLockdown(lid, enabled) {
       const s = appState.scheduledLockdowns.find(x => x.id === lid);
       if (!s) return;
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/scheduled-lockdowns`, { id: lid, start_time: s.start_time, end_time: s.end_time, enabled: !!enabled });
+      try {
+        await apiRequest('POST', `/api/group/${appState.activeGroupId}/scheduled-lockdowns`, { id: lid, start_time: s.start_time, end_time: s.end_time, enabled: !!enabled });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await loadLockdowns();
       renderHubCards();
       showToast(enabled ? '定时关群已恢复' : '定时关群已暂停');
     }
 
     async function deleteScheduledLockdown(lid) {
-      await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/scheduled-lockdowns/${lid}`);
+      try {
+        await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/scheduled-lockdowns/${lid}`);
+      } catch (err) {
+        showToast('删除失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await loadLockdowns();
       renderHubCards();
       showToast('定时关群时段已删除');
@@ -4124,6 +4342,7 @@
           <div>
             <span class="text-xs font-semibold text-white">「${escapeHtml(k.keyword)}」</span>
             <span class="text-[11px] text-slate-400 ml-2">触发后锁群 ${k.lock_minutes} 分钟</span>
+            ${k.allow_admin_trigger ? '<span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[10px] ml-1">管理员也可触发</span>' : ''}
             ${k.enabled ? '' : '<span class="px-2 py-0.5 rounded bg-white/5 text-slate-400 text-[10px] ml-1">停用</span>'}
           </div>
           <div class="flex gap-1.5 shrink-0">
@@ -4135,30 +4354,54 @@
     }
 
     async function addLockdownKeyword() {
+      if (!requireActiveGroup()) return;
       const keyword = (document.getElementById('lk-keyword').value || '').trim();
       if (!keyword) { showToast('请先填写关群关键词', 'error'); return; }
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/lockdown-keywords`, {
-        keyword,
-        lock_minutes: Number(document.getElementById('lk-minutes').value || 30),
-        enabled: true
-      });
+      let res;
+      try {
+        res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/lockdown-keywords`, {
+          keyword,
+          lock_minutes: Number(document.getElementById('lk-minutes').value || 30),
+          enabled: true,
+          allow_admin_trigger: document.getElementById('lk-allow-admin').checked
+        });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       document.getElementById('lk-keyword').value = '';
       await loadLockdowns();
       renderHubCards();
-      showToast('话术关群关键词已添加');
+      // 保存后重新 GET 校验新 id 在列表里, 否则报错而不是“已添加”
+      const newId = res && res.keyword && res.keyword.id;
+      if (newId && !(appState.lockdownKeywords || []).some(k => k.id === newId)) {
+        showToast('保存失败：服务端未返回该关键词，请检查后重试', 'error');
+        return;
+      }
+      showToast(`话术关群关键词已保存到群 ${activeGroupLabel()}`);
     }
 
     async function toggleLockdownKeyword(kid, enabled) {
       const k = appState.lockdownKeywords.find(x => x.id === kid);
       if (!k) return;
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/lockdown-keywords`, { id: kid, keyword: k.keyword, lock_minutes: k.lock_minutes, enabled: !!enabled });
+      try {
+        await apiRequest('POST', `/api/group/${appState.activeGroupId}/lockdown-keywords`, { id: kid, keyword: k.keyword, lock_minutes: k.lock_minutes, enabled: !!enabled, allow_admin_trigger: !!k.allow_admin_trigger });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await loadLockdowns();
       renderHubCards();
       showToast(enabled ? '话术关群已启用' : '话术关群已停用');
     }
 
     async function deleteLockdownKeyword(kid) {
-      await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/lockdown-keywords/${kid}`);
+      try {
+        await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/lockdown-keywords/${kid}`);
+      } catch (err) {
+        showToast('删除失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await loadLockdowns();
       renderHubCards();
       showToast('话术关群关键词已删除');
@@ -4227,7 +4470,7 @@
       const container = document.getElementById('bottom-buttons-list');
       if (!container) return;
       if (!appState.bottomButtons || appState.bottomButtons.length === 0) {
-        container.innerHTML = `<div class="p-4 rounded-xl bg-black/25 border border-white/10 text-center text-xs text-slate-500">暂无底部按钮，添加后群内发送「广告」即可弹出</div>`;
+        container.innerHTML = `<div class="p-4 rounded-xl bg-black/25 border border-white/10 text-center text-xs text-slate-500">暂无底部按钮，添加后群内单独发送「广告」两个字即可弹出（带图片发「广告」当说明文字也行）</div>`;
         return;
       }
       container.innerHTML = appState.bottomButtons.map(b => `
@@ -4246,28 +4489,51 @@
     }
 
     async function addBottomButton() {
+      if (!requireActiveGroup()) return;
       const text = (document.getElementById('bb-text').value || '').trim();
       const reply = (document.getElementById('bb-reply').value || '').trim();
       if (!text || !reply) { showToast('按钮文字与回复内容均不能为空', 'error'); return; }
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/bottom-buttons`, { button_text: text, reply_text: reply, enabled: true });
+      let res;
+      try {
+        res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/bottom-buttons`, { button_text: text, reply_text: reply, enabled: true });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       document.getElementById('bb-text').value = '';
       document.getElementById('bb-reply').value = '';
       await loadBottomButtons();
       renderHubCards();
-      showToast('底部按钮已添加');
+      // 保存后重新 GET 校验新 id 在列表里, 否则报错而不是“已添加”
+      const newId = res && res.button && res.button.id;
+      if (newId && !(appState.bottomButtons || []).some(b => b.id === newId)) {
+        showToast('保存失败：服务端未返回该按钮，请检查后重试', 'error');
+        return;
+      }
+      showToast(`底部按钮已保存到群 ${activeGroupLabel()}`);
     }
 
     async function toggleBottomButton(bid, enabled) {
       const b = appState.bottomButtons.find(x => x.id === bid);
       if (!b) return;
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/bottom-buttons`, { id: bid, button_text: b.button_text, reply_text: b.reply_text, enabled: !!enabled });
+      try {
+        await apiRequest('POST', `/api/group/${appState.activeGroupId}/bottom-buttons`, { id: bid, button_text: b.button_text, reply_text: b.reply_text, enabled: !!enabled });
+      } catch (err) {
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await loadBottomButtons();
       renderHubCards();
       showToast(enabled ? '底部按钮已启用' : '底部按钮已停用');
     }
 
     async function deleteBottomButton(bid) {
-      await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/bottom-buttons/${bid}`);
+      try {
+        await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/bottom-buttons/${bid}`);
+      } catch (err) {
+        showToast('删除失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
       await loadBottomButtons();
       renderHubCards();
       showToast('底部按钮已删除');

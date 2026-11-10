@@ -171,13 +171,14 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     0. 改名监控 (对比旧档案, 在登记前检查) → 成员活跃登记与消息归档 (群聊)
     1. 先执行内容安全拦截与阶梯处罚 (moderation)
     2. 强制订阅检查 (未订阅频道者禁言并提示)
-    2.5 发言积分发放 (首条/每条/随机, 受每日上限控制)
+    2.5 话术关群关键词 (命中则锁群) —— 须在关键词自动回复之前
+    2.6 群底部按钮 (广告) —— 须在关键词自动回复之前, 否则“广告”会被关键词回复吃掉
+    2.7 发言积分发放 (首条/每条/随机, 受每日上限控制)
     3. 关键词自动回复 (命中则回复并结束, 不调用 Ollama)
     4. 积分指令 (签到/积分/排行/流水/兑换)
     5. 抽奖与骰子指令 (抽奖/开奖/骰子)
-    6. 话术关群关键词 (命中则锁群)
-    7. 群底部按钮 (广告) / 计算器 / 自动查U
-    8. 若未违规且满足唤醒条件，则路由至本地 Ollama 大模型对话
+    6. 计算器 / 自动查U
+    7. 若未违规且满足唤醒条件，则路由至本地 Ollama 大模型对话
     """
     is_group = message.chat.type in ("group", "supergroup")
 
@@ -201,7 +202,7 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
         if violated:
             return
 
-    if not message.text or not message.from_user:
+    if not (message.text or message.caption) or not message.from_user:
         return
 
     # 第二步：强制订阅检查
@@ -210,7 +211,15 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     ):
         return
 
-    # 第 2.5 步：发言积分发放
+    # 第 2.5 步：话术关群关键词 (命中则锁群并结束；须在关键词自动回复之前)
+    if is_group and await check_lockdown_keyword(message, bot):
+        return
+
+    # 第 2.6 步：群底部按钮 (命中则弹出按钮并结束；须在关键词自动回复之前)
+    if is_group and await check_bottom_buttons(message, bot):
+        return
+
+    # 第 2.7 步：发言积分发放
     if is_group:
         await award_message_points(message.chat.id, message.from_user)
 
@@ -228,13 +237,7 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     if is_group and await handle_dice_command(message, bot):
         return
 
-    # 第六步：话术关群关键词 (命中则锁群并结束)
-    if is_group and await check_lockdown_keyword(message, bot):
-        return
-
-    # 第七步：群底部按钮 / 计算器 / 自动查U
-    if is_group and await check_bottom_buttons(message, bot):
-        return
+    # 第六步：计算器 / 自动查U
     if is_group and await check_calculator(message, bot):
         return
     if is_group and await check_trc20_balance(message, bot):

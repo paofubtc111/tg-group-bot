@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS group_moderation_settings (
     warning_ttl INTEGER DEFAULT 5,           -- 警告消息自动销毁秒数 (默认 5 秒)
     max_warn_count INTEGER DEFAULT 3,        -- 累计违规封禁阈值
     warn_action TEXT DEFAULT 'kick',         -- 达到阈值处罚: 'kick', 'ban', 'mute'
+    moderate_admins INTEGER DEFAULT 0,       -- 连管理员也拦截 (测试用, 默认关: 管理员豁免)
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
 );
 
@@ -464,6 +465,7 @@ CREATE TABLE IF NOT EXISTS lockdown_keywords (
     keyword TEXT NOT NULL,
     lock_minutes INTEGER DEFAULT 30,         -- 触发后锁群时长 (分钟)
     enabled BOOLEAN DEFAULT TRUE,
+    allow_admin_trigger INTEGER DEFAULT 0,   -- 管理员也可触发 (测试用, 默认关: 管理员豁免)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
 );

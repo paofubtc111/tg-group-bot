@@ -539,6 +539,29 @@ async def get_db() -> AsyncIterator[Any]:
             await _pool.release(conn)
 
 
+# 已存在表的新增列 (schema 已同步; 迁移只给旧库补列, 幂等)
+_NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("lockdown_keywords", "allow_admin_trigger", "INTEGER DEFAULT 0"),
+    ("group_moderation_settings", "moderate_admins", "INTEGER DEFAULT 0"),
+)
+
+
+async def _migrate_sqlite_columns(conn: aiosqlite.Connection) -> None:
+    """SQLite: 先查 PRAGMA table_info 再 ADD COLUMN (不支持 IF NOT EXISTS)。"""
+    for table, column, ddl in _NEW_COLUMNS:
+        cur = await conn.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in await cur.fetchall()}
+        if column not in existing:
+            await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    await conn.commit()
+
+
+async def _migrate_pg_columns(conn: "asyncpg.Connection") -> None:
+    """PostgreSQL: ADD COLUMN IF NOT EXISTS。"""
+    for table, column, ddl in _NEW_COLUMNS:
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}")
+
+
 async def _ensure_default_template() -> None:
     """确保系统默认全局欢迎模板存在 (SQLite / PG 共用)。"""
     async with get_db() as db:
@@ -577,6 +600,7 @@ async def init_db() -> None:
         async with pool.acquire() as conn:
             # asyncpg 的 execute() 支持一次执行多条语句
             await conn.execute(schema_sql)
+            await _migrate_pg_columns(conn)
         await _ensure_default_template()
         return
 
@@ -586,6 +610,7 @@ async def init_db() -> None:
     async with aiosqlite.connect(settings.DATABASE_PATH) as conn:
         await conn.executescript(schema_sql)
         await conn.commit()
+        await _migrate_sqlite_columns(conn)
 
     await _pool.init_pool()
 
@@ -610,13 +635,17 @@ async def ensure_group_initialized(
         elif group_title != "未命名群组":
             # 仅当调用方传入了真实群名时才覆盖标题；API 端点传入默认
             # "未命名群组" 时不得抹掉中间件已写入的真实群名。
+            # 机器人能收到这个群的消息, 就说明它还是群成员、群是活跃的:
+            # 已存在行也把 is_active 翻回 1 (被踢了就收不到消息, 中间件
+            # 根本不会跑, 所以翻回是安全的; 踢出时的置 0 由
+            # on_bot_member_updated 的 my_chat_member 处理负责)。
             await db.execute(
-                "UPDATE group_settings SET group_title = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
+                "UPDATE group_settings SET group_title = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
                 (group_title, group_id),
             )
         else:
             await db.execute(
-                "UPDATE group_settings SET updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
+                "UPDATE group_settings SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
                 (group_id,),
             )
 

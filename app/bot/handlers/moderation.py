@@ -62,11 +62,10 @@ async def cmd_open_panel(message: types.Message) -> None:
                 ]
             ]
         )
-        reply = await message.reply(
+        await message.reply(
             "🔒 为保护群组配置隐私，请点击下方按钮在私聊中打开 Mini App 管理面板：",
             reply_markup=kb,
         )
-        asyncio.create_task(auto_delete_warning(message.bot, message.chat.id, reply.message_id, 15))
 
 
 @router.message(Command("admin", "report"))
@@ -119,8 +118,15 @@ async def inspect_and_moderate_message(message: types.Message, bot: Bot) -> bool
     if message.chat.type not in ("group", "supergroup") or not message.from_user:
         return False
 
-    # 1. 管理员豁免白名单
-    if await is_user_admin(bot, chat_id, message.from_user.id):
+    # 0. 先读审核配置: moderate_admins=1 时管理员也照常拦截 (测试用开关, 默认关)
+    async with get_db() as db:
+        _sec = await db.fetchrow(
+            "SELECT * FROM group_moderation_settings WHERE group_id = ?", (chat_id,)
+        )
+    moderate_admins = bool(_sec.get("moderate_admins")) if _sec else False
+
+    # 1. 管理员豁免白名单 (仅 moderate_admins=0 时豁免)
+    if not moderate_admins and await is_user_admin(bot, chat_id, message.from_user.id):
         return False
 
     # 1b. 广告白名单用户豁免 (group_whitelist)
@@ -138,9 +144,7 @@ async def inspect_and_moderate_message(message: types.Message, bot: Bot) -> bool
         emg = await db.fetchrow(
             "SELECT * FROM group_emergency_settings WHERE group_id = ?", (chat_id,)
         )
-        sec = await db.fetchrow(
-            "SELECT * FROM group_moderation_settings WHERE group_id = ?", (chat_id,)
-        )
+        sec = _sec
         rules = await db.fetch(
             "SELECT * FROM group_sensitive_rules WHERE group_id = ?", (chat_id,)
         )
@@ -218,6 +222,17 @@ async def inspect_and_moderate_message(message: types.Message, bot: Bot) -> bool
         await bot.delete_message(chat_id, message.message_id)
     except Exception as exc:
         logger.warning("删除违规消息失败: %s", exc)
+        try:
+            await record_audit_log(
+                chat_id,
+                0,
+                "AutoModerator",
+                "delete_failed",
+                f"删除违规消息失败 (msg={message.message_id}, user={message.from_user.id}): {exc}，"
+                "请检查 Bot 是否为管理员且有“删除消息”权限",
+            )
+        except Exception:
+            pass
 
     # 6. 累计用户违规次数并判定阶梯处罚
     user_id = message.from_user.id

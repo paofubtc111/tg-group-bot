@@ -76,6 +76,7 @@ class ModerationConfigPayload(BaseModel):
     warning_ttl: int = Field(default=5, ge=0, le=300)
     max_warn_count: int = Field(default=3, ge=1, le=20)
     warn_action: str = Field(default="kick", pattern="^(kick|ban|mute)$")
+    moderate_admins: bool = False
     rules: Optional[List[SensitiveRuleItem]] = None
     batch_keywords: Optional[List[str]] = None
 
@@ -111,6 +112,10 @@ class WhitelistPayload(BaseModel):
 class MemberActionPayload(BaseModel):
     action: str = Field(pattern="^(mute|unmute|kick|ban|unban)$")
     duration: int = Field(default=3600, ge=60, le=2592000)  # 秒
+
+
+class BackfillMemberPayload(BaseModel):
+    user_id: int
 
 
 class KeywordReplyPayload(BaseModel):
@@ -239,6 +244,7 @@ class LockdownKeywordPayload(BaseModel):
     keyword: str
     lock_minutes: int = Field(default=30, ge=1, le=43200)
     enabled: bool = True
+    allow_admin_trigger: bool = False
 
 
 class TogglePayload(BaseModel):
@@ -268,6 +274,9 @@ class GroupImportPayload(BaseModel):
     moderation: Optional[ModerationConfigPayload] = None
     llm: Optional[LLMConfigPayload] = None
     emergency: Optional[EmergencyConfigPayload] = None
+    # 欢迎模板内容 (导出时带上; 导入时以副本形式新建并重映射 active_template_id)。
+    # 只导设置不导模板内容的话, 导入到新库/新群后 active_template_id 会指向不存在的模板行。
+    templates: Optional[List[TemplatePayload]] = None
 
 
 # ==================== WebApp 首页与基础鉴权路由 ====================
@@ -654,7 +663,8 @@ async def api_save_moderation(
             """
             UPDATE group_moderation_settings
             SET block_tg_links = ?, block_all_urls = ?, block_forwards = ?,
-                send_warning_msg = ?, warning_ttl = ?, max_warn_count = ?, warn_action = ?
+                send_warning_msg = ?, warning_ttl = ?, max_warn_count = ?, warn_action = ?,
+                moderate_admins = ?
             WHERE group_id = ?
             """,
             (
@@ -665,12 +675,15 @@ async def api_save_moderation(
                 payload.warning_ttl,
                 payload.max_warn_count,
                 payload.warn_action,
+                int(payload.moderate_admins),
                 group_id,
             ),
         )
 
-        # 若传入了完整的规则列表，则全量同步更新
-        if payload.rules is not None:
+        # 若传入了非空规则列表, 则全量同步更新。
+        # 空列表视为“未改动规则” (保留现有规则), 避免面板保存一次空列表就清空全部规则;
+        # 单条规则删除仍走单删接口。
+        if payload.rules:
             await db.execute(
                 "DELETE FROM group_sensitive_rules WHERE group_id = ?", (group_id,)
             )
@@ -903,13 +916,44 @@ async def api_export_group_config(
             (group_id,),
         )
         moderation = await db.fetchrow(
-            "SELECT block_tg_links, block_all_urls, block_forwards, send_warning_msg, warning_ttl, max_warn_count, warn_action FROM group_moderation_settings WHERE group_id = ?",
+            "SELECT block_tg_links, block_all_urls, block_forwards, send_warning_msg, warning_ttl, max_warn_count, warn_action, moderate_admins FROM group_moderation_settings WHERE group_id = ?",
             (group_id,),
         )
         rules = await db.fetch(
             "SELECT pattern, match_type, punish_action, mute_duration FROM group_sensitive_rules WHERE group_id = ?",
             (group_id,),
         )
+        # 欢迎模板内容也要导出 (只导 active_template_id 的话, 导入到新库/新群后
+        # 该 ID 指向不存在的模板行, 欢迎语就丢了)。导本群模板 + 当前激活模板
+        # (激活的可能是系统全局模板), 导入时以副本形式新建并重映射 ID。
+        active_tpl_id = welcome["active_template_id"] if welcome else None
+        tpl_rows = await db.fetch(
+            """
+            SELECT template_id, template_name, media_type, media_source, content, buttons_json
+            FROM message_templates WHERE group_id = ? OR template_id = ?
+            """,
+            (group_id, active_tpl_id),
+        )
+        templates = []
+        seen_tpl_ids = set()
+        for t in tpl_rows:
+            if t["template_id"] in seen_tpl_ids:
+                continue
+            seen_tpl_ids.add(t["template_id"])
+            try:
+                buttons = json.loads(t.get("buttons_json") or "[]")
+            except (ValueError, TypeError):
+                buttons = []
+            templates.append(
+                {
+                    "template_id": t["template_id"],
+                    "template_name": t["template_name"],
+                    "media_type": t["media_type"],
+                    "media_source": t["media_source"] or "",
+                    "content": t["content"],
+                    "buttons": buttons,
+                }
+            )
         llm = await db.fetchrow(
             "SELECT enabled, base_url, model_name, system_prompt, trigger_on_mention, trigger_on_reply, trigger_keywords, context_enabled, context_mode, context_limit FROM group_llm_settings WHERE group_id = ?",
             (group_id,),
@@ -923,13 +967,14 @@ async def api_export_group_config(
         moderation["rules"] = rules
 
     return {
-        "version": "1.0",
+        "version": "1.1",
         "source_group_id": group_id,
         "captcha": captcha,
         "welcome": welcome,
         "moderation": moderation,
         "llm": llm,
         "emergency": emergency,
+        "templates": templates,
     }
 
 
@@ -943,11 +988,42 @@ async def api_import_group_config(
     await require_group_admin(request, group_id, user)
     await ensure_group_initialized(group_id)
 
+    # 欢迎模板先导入 (以副本形式新建, 不覆盖原模板行), 再把 welcome 的
+    # active_template_id 重映射到新副本 ID, 否则欢迎设置会指向不存在的模板。
+    if payload.templates:
+        id_map: dict[int, int] = {}
+        for tpl in payload.templates:
+            copied = TemplatePayload(
+                template_id=None,
+                template_name=tpl.template_name,
+                media_type=tpl.media_type,
+                media_source=tpl.media_source or "",
+                content=tpl.content,
+                buttons=tpl.buttons or [],
+            )
+            saved = await api_save_template(group_id, copied, request, user)
+            new_id = (saved.get("template") or {}).get("template_id")
+            if tpl.template_id and new_id:
+                id_map[tpl.template_id] = new_id
+        if payload.welcome and payload.welcome.active_template_id in id_map:
+            payload.welcome.active_template_id = id_map[
+                payload.welcome.active_template_id
+            ]
+
     if payload.captcha:
         await api_save_captcha(group_id, payload.captcha, request, user)
     if payload.welcome:
         await api_save_welcome(group_id, payload.welcome, request, user)
     if payload.moderation:
+        # 导入是全量覆盖语义: 导出文件里 rules=[] 表示源群没有规则,
+        # 必须清空目标群规则。面板保存路径把 [] 当“未改动” (Bug 5),
+        # 所以这里先显式清空, 再走保存接口。
+        if payload.moderation.rules is not None and len(payload.moderation.rules) == 0:
+            async with get_db() as db:
+                await db.execute(
+                    "DELETE FROM group_sensitive_rules WHERE group_id = ?",
+                    (group_id,),
+                )
         await api_save_moderation(group_id, payload.moderation, request, user)
     if payload.llm:
         await api_save_llm(group_id, payload.llm, request, user)
@@ -1059,22 +1135,33 @@ async def api_get_members(
     page = max(1, page)
     page_size = min(100, max(1, page_size))
 
-    # 通过 Telegram 实时拉取管理员列表, 同步 is_admin 标记
+    # 通过 Telegram 实时拉取管理员列表, 同步 is_admin 标记;
+    # 管理员 upsert 进 group_members (补 username/first_name), 至少保证全部管理员必在表里
     bot = getattr(request.app.state, "bot", None)
     admin_ids: set = set()
     if bot is not None:
         try:
             admins = await bot.get_chat_administrators(group_id)
             admin_ids = {adm.user.id for adm in admins}
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             async with get_db() as db:
                 await db.execute(
                     "UPDATE group_members SET is_admin = 0 WHERE group_id = ?",
                     (group_id,),
                 )
-                for aid in admin_ids:
+                for adm in admins:
+                    u = adm.user
                     await db.execute(
-                        "UPDATE group_members SET is_admin = 1 WHERE group_id = ? AND user_id = ?",
-                        (group_id, aid),
+                        """
+                        INSERT INTO group_members (group_id, user_id, username, first_name, is_admin, message_count, last_seen, joined_at)
+                        VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+                        ON CONFLICT(group_id, user_id) DO UPDATE SET
+                            username = excluded.username,
+                            first_name = excluded.first_name,
+                            is_admin = 1,
+                            last_seen = excluded.last_seen
+                        """,
+                        (group_id, u.id, u.username or "", u.first_name or "", now, now),
                     )
         except Exception as exc:
             logger.warning("拉取群管理员列表失败: %s", exc)
@@ -1105,6 +1192,65 @@ async def api_get_members(
         "page_size": page_size,
         "admin_ids": sorted(admin_ids),
     }
+
+
+@api_router.post("/api/group/{group_id}/members/backfill")
+async def api_backfill_member(
+    group_id: int,
+    payload: BackfillMemberPayload,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """按 ID 手动补录成员 (唯一能补录沉默老成员的合法途径)。
+
+    后端调 bot.get_chat_member 拿到人后写入 group_members; 不存在则 INSERT,
+    存在则更新档案。不是“自动同步全部成员” (Bot API 没有拉取全部成员的接口)。
+    """
+    await require_group_admin(request, group_id, user)
+    await ensure_group_initialized(group_id)
+    bot = getattr(request.app.state, "bot", None)
+    if bot is None:
+        raise HTTPException(status_code=503, detail="Bot 未在线，无法补录成员")
+    try:
+        member = await bot.get_chat_member(group_id, payload.user_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404, detail=f"在群内找不到该用户: {exc}"
+        )
+    if member.status in ("left", "kicked"):
+        raise HTTPException(
+            status_code=400, detail="该用户不在群内（已退群或被移出）"
+        )
+    u = member.user
+    if u.is_bot:
+        raise HTTPException(status_code=400, detail="不能补录机器人账号")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    is_admin = 1 if member.status in ("administrator", "creator") else 0
+    async with get_db() as db:
+        await db.execute(
+            """
+            INSERT INTO group_members (group_id, user_id, username, first_name, is_admin, message_count, last_seen, joined_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+            ON CONFLICT(group_id, user_id) DO UPDATE SET
+                username = excluded.username,
+                first_name = excluded.first_name,
+                is_admin = excluded.is_admin,
+                last_seen = excluded.last_seen
+            """,
+            (group_id, u.id, u.username or "", u.first_name or "", is_admin, now, now),
+        )
+        row = await db.fetchrow(
+            "SELECT * FROM group_members WHERE group_id = ? AND user_id = ?",
+            (group_id, payload.user_id),
+        )
+    await record_audit_log(
+        group_id,
+        int(user["id"]),
+        user.get("first_name") or "Admin",
+        "backfill_member",
+        f"手动补录成员: {u.full_name} ({u.id})",
+    )
+    return {"status": "ok", "member": row}
 
 
 @api_router.post("/api/group/{group_id}/members/{user_id}/action")
@@ -2644,6 +2790,10 @@ async def api_save_scheduled_lockdown(
         hh, mm = t.split(":")
         if int(hh) > 23 or int(mm) > 59:
             raise HTTPException(status_code=400, detail="时间格式无效 (应为 HH:MM)")
+    if payload.start_time == payload.end_time:
+        raise HTTPException(
+            status_code=400, detail="开始时间不能等于结束时间 (否则该规则永远不触发)"
+        )
     async with get_db() as db:
         if payload.id:
             await db.execute(
@@ -2736,13 +2886,14 @@ async def api_save_lockdown_keyword(
             await db.execute(
                 """
                 UPDATE lockdown_keywords
-                SET keyword = ?, lock_minutes = ?, enabled = ?
+                SET keyword = ?, lock_minutes = ?, enabled = ?, allow_admin_trigger = ?
                 WHERE id = ? AND group_id = ?
                 """,
                 (
                     keyword,
                     payload.lock_minutes,
                     int(payload.enabled),
+                    int(payload.allow_admin_trigger),
                     payload.id,
                     group_id,
                 ),
@@ -2751,10 +2902,10 @@ async def api_save_lockdown_keyword(
         else:
             kid = await db.execute(
                 """
-                INSERT INTO lockdown_keywords (group_id, keyword, lock_minutes, enabled)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO lockdown_keywords (group_id, keyword, lock_minutes, enabled, allow_admin_trigger)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (group_id, keyword, payload.lock_minutes, int(payload.enabled)),
+                (group_id, keyword, payload.lock_minutes, int(payload.enabled), int(payload.allow_admin_trigger)),
             )
         row = await db.fetchrow(
             "SELECT * FROM lockdown_keywords WHERE id = ?", (kid,)

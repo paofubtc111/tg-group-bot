@@ -94,6 +94,15 @@ async def track_member_join(chat_id: int, user: types.User) -> None:
         logger.warning("登记入群成员失败 (group=%s, user=%s): %s", chat_id, user.id, exc)
 
 
+async def track_member_seen(chat_id: int, user: types.User) -> None:
+    """仅补记成员档案 (不增加消息数): 中间件对所有群 update 调用。
+
+    语义与 track_member_join 相同 (INSERT ... ON CONFLICT DO UPDATE,
+    只写档案不碰 message_count), 避免中间件登记导致发言计数翻倍。
+    """
+    await track_member_join(chat_id, user)
+
+
 # ==================== 群消息归档 ====================
 
 
@@ -504,7 +513,11 @@ async def _lock_group(
 
 
 async def _unlock_group(bot: Bot, group_id: int, source: str) -> None:
-    """仅当锁状态来源匹配时才解除全员禁言 (不干扰紧急模式的锁)。"""
+    """仅当锁状态来源匹配时才解除全员禁言 (不干扰紧急模式的锁)。
+
+    解锁失败时保持 DB 状态不变 (下个 tick 重试), 并记审计日志,
+    避免“权限掉了”和“没锁”无法区分。
+    """
     async with get_db() as db:
         state = await db.fetchrow(
             "SELECT * FROM group_lock_state WHERE group_id = ?", (group_id,)
@@ -516,7 +529,17 @@ async def _unlock_group(bot: Bot, group_id: int, source: str) -> None:
             group_id, permissions=UNRESTRICTED_PERMISSIONS
         )
     except Exception as exc:
-        logger.warning("解群锁设置权限失败 (group=%s): %s", group_id, exc)
+        logger.error("解群锁设置权限失败 (group=%s, source=%s): %s", group_id, source, exc)
+        try:
+            await record_audit_log(
+                group_id,
+                0,
+                "AutoModerator",
+                "unlock_failed",
+                f"解锁失败 (source={source}): {exc}，DB 锁状态保持不变，下个循环将重试",
+            )
+        except Exception:
+            pass
         return
     async with get_db() as db:
         await db.execute(
@@ -533,35 +556,67 @@ def _in_time_window(now_hhmm: str, start: str, end: str) -> bool:
 
 
 async def _apply_scheduled_lockdowns(bot: Bot) -> None:
-    """定时关群: 窗口内锁群, 窗口外解群锁。"""
+    """定时关群: 按群聚合决策, 每群每 tick 只做一次锁/解。
+
+    多规则同群不再逐条独立判定 (避免一条在窗内、一条在窗外时先锁后解)。
+    有效的话术锁 (source='keyword' 且未到期) 不被定时循环覆写。
+    窗口外且 source='schedule' 的锁每 tick 重试解锁, 直到成功。
+    """
     now_hhmm = datetime.now(CST).strftime("%H:%M")
     async with get_db() as db:
         rows = await db.fetch(
             "SELECT * FROM scheduled_lockdowns WHERE enabled = 1"
         )
+    by_group: Dict[int, list] = {}
     for row in rows:
-        group_id = row["group_id"]
-        start = (row.get("start_time") or "00:00")[:5]
-        end = (row.get("end_time") or "00:00")[:5]
+        by_group.setdefault(row["group_id"], []).append(row)
+    for group_id, rules in by_group.items():
         try:
-            if _in_time_window(now_hhmm, start, end):
-                async with get_db() as db:
-                    state = await db.fetchrow(
-                        "SELECT * FROM group_lock_state WHERE group_id = ?",
-                        (group_id,),
-                    )
+            in_window = False
+            window_rule = None
+            for r in rules:
+                start = (r.get("start_time") or "00:00")[:5]
+                end = (r.get("end_time") or "00:00")[:5]
+                if _in_time_window(now_hhmm, start, end):
+                    in_window = True
+                    window_rule = r
+                    break
+            async with get_db() as db:
+                state = await db.fetchrow(
+                    "SELECT * FROM group_lock_state WHERE group_id = ?",
+                    (group_id,),
+                )
+            if in_window:
+                if state and state.get("locked") and state.get("source") == "keyword":
+                    locked_until = state.get("locked_until") or ""
+                    if locked_until and locked_until > datetime.now(CST).isoformat(
+                        timespec="seconds"
+                    ):
+                        continue
                 if not state or not state.get("locked") or state.get("source") != "schedule":
-                    await _lock_group(bot, group_id, "schedule", schedule_id=row["id"])
-                    logger.info("定时关群已锁群 (group=%s, %s-%s)", group_id, start, end)
+                    await _lock_group(bot, group_id, "schedule", schedule_id=window_rule["id"])
+                    logger.info(
+                        "定时关群已锁群 (group=%s, %s-%s)",
+                        group_id,
+                        window_rule.get("start_time"),
+                        window_rule.get("end_time"),
+                    )
             else:
-                await _unlock_group(bot, group_id, "schedule")
+                if state and state.get("locked") and state.get("source") == "schedule":
+                    await _unlock_group(bot, group_id, "schedule")
         except Exception as exc:
             logger.warning("定时关群执行失败 (group=%s): %s", group_id, exc)
 
 
 async def _expire_keyword_locks(bot: Bot) -> None:
-    """话术关群到期自动解群锁。"""
+    """话术关群到期自动解群锁。
+
+    到期时若定时规则正处窗口内, 把锁移交给 'schedule' (locked 保持 1,
+    locked_until 清空) 而不是解锁, 避免定时窗口内出现 <=60 秒空档。
+    解锁失败时不发“已解锁”公告, 下个 tick 重试。
+    """
     now = datetime.now(CST).isoformat(timespec="seconds")
+    now_hhmm = datetime.now(CST).strftime("%H:%M")
     async with get_db() as db:
         rows = await db.fetch(
             """
@@ -572,18 +627,57 @@ async def _expire_keyword_locks(bot: Bot) -> None:
             (now,),
         )
     for row in rows:
+        group_id = row["group_id"]
         try:
-            await _unlock_group(bot, row["group_id"], "keyword")
-            await bot.send_message(row["group_id"], "🔓 话术关群时间到，群组已自动解锁。")
+            async with get_db() as db:
+                sched = await db.fetch(
+                    "SELECT * FROM scheduled_lockdowns WHERE group_id = ? AND enabled = 1",
+                    (group_id,),
+                )
+            handover = None
+            for r in sched:
+                start = (r.get("start_time") or "00:00")[:5]
+                end = (r.get("end_time") or "00:00")[:5]
+                if _in_time_window(now_hhmm, start, end):
+                    handover = r
+                    break
+            if handover is not None:
+                async with get_db() as db:
+                    await db.execute(
+                        """
+                        UPDATE group_lock_state
+                        SET source = 'schedule', locked_until = NULL, schedule_id = ?
+                        WHERE group_id = ? AND source = 'keyword'
+                        """,
+                        (handover["id"], group_id),
+                    )
+                logger.info(
+                    "话术锁到期, 定时窗口内, 锁已移交 schedule (group=%s)", group_id
+                )
+                continue
+            await _unlock_group(bot, group_id, "keyword")
+            async with get_db() as db:
+                state = await db.fetchrow(
+                    "SELECT locked FROM group_lock_state WHERE group_id = ?",
+                    (group_id,),
+                )
+            if not state or not state.get("locked"):
+                await bot.send_message(group_id, "🔓 话术关群时间到，群组已自动解锁。")
+            else:
+                logger.warning("话术锁解锁失败, 下个循环重试 (group=%s)", group_id)
         except Exception as exc:
-            logger.warning("话术关群自动解锁失败 (group=%s): %s", row["group_id"], exc)
+            logger.warning("话术关群自动解锁失败 (group=%s): %s", group_id, exc)
 
 
 async def check_lockdown_keyword(message: types.Message, bot: Bot) -> bool:
-    """话术关群: 群消息命中关群关键词时锁群并公告 (管理员豁免触发)。"""
+    """话术关群: 群消息命中关群关键词时锁群并公告。
+
+    管理员默认豁免触发; 仅当该关键词 allow_admin_trigger=1 时管理员也可触发。
+    匹配不区分大小写, 读 text 或 caption。
+    """
     if message.chat.type not in ("group", "supergroup"):
         return False
-    text = (message.text or "").strip()
+    text = (message.text or message.caption or "").strip()
     if not text or not message.from_user:
         return False
     try:
@@ -597,13 +691,19 @@ async def check_lockdown_keyword(message: types.Message, bot: Bot) -> bool:
         hit = None
         for r in rows:
             keyword = (r.get("keyword") or "").strip()
-            if keyword and keyword in text:
+            if keyword and keyword.lower() in text.lower():
                 hit = r
                 break
         if not hit:
             return False
         if await _is_group_admin(bot, message.chat.id, message.from_user.id):
-            return False
+            if not hit.get("allow_admin_trigger"):
+                logger.debug(
+                    "话术关群: 管理员触发已豁免 (group=%s, keyword=%s)",
+                    message.chat.id,
+                    hit.get("keyword"),
+                )
+                return False
         minutes = int(hit.get("lock_minutes") or 30)
         until = (datetime.now(CST) + timedelta(minutes=minutes)).isoformat(timespec="seconds")
         await _lock_group(bot, message.chat.id, "keyword", locked_until=until)
@@ -708,6 +808,8 @@ async def on_member_status_changed(event: types.ChatMemberUpdated, bot: Bot) -> 
         except Exception:
             pass
         await record_invite(group_id, inviter_id, user.id)
+        # 入群补记成员档案 (与 captcha 入群登记互为备份)
+        await track_member_join(group_id, user)
         return
 
     if not is_member and was_member and new_status in ("left", "kicked"):
@@ -835,10 +937,10 @@ async def check_rename_watch_with_bot(
 
 
 async def check_bottom_buttons(message: types.Message, bot: Bot) -> bool:
-    """群底部按钮: 用户发送「广告」时弹出已启用的自定义按钮。"""
+    """群底部按钮: 用户发送「广告」时弹出已启用的自定义按钮 (读 text 或 caption)。"""
     if message.chat.type not in ("group", "supergroup"):
         return False
-    text = (message.text or "").strip()
+    text = (message.text or message.caption or "").strip()
     if text != "广告":
         return False
     async with get_db() as db:
@@ -848,6 +950,9 @@ async def check_bottom_buttons(message: types.Message, bot: Bot) -> bool:
         )
     if not buttons:
         return False
+    logger.debug(
+        "底部按钮命中 (group=%s, 按钮 %d 个)", message.chat.id, len(buttons)
+    )
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -861,7 +966,8 @@ async def check_bottom_buttons(message: types.Message, bot: Bot) -> bool:
     try:
         await message.reply("👇 点击下方按钮查看内容：", reply_markup=keyboard)
     except Exception as exc:
-        logger.warning("发送底部按钮失败: %s", exc)
+        logger.error("发送底部按钮失败 (group=%s): %s", message.chat.id, exc)
+        return False
     return True
 
 
@@ -884,11 +990,17 @@ async def on_bottom_button_callback(query: types.CallbackQuery, bot: Bot) -> Non
     if not row or not row.get("enabled"):
         await query.answer("该按钮已停用。", show_alert=True)
         return
+    chat_id = query.message.chat.id if query.message else None
+    if chat_id is None or row.get("group_id") != chat_id:
+        await query.answer("该按钮不属于当前群组。", show_alert=True)
+        return
+    reply_text = (row.get("reply_text") or "").strip()
+    if not reply_text:
+        await query.answer("该按钮暂无内容。", show_alert=True)
+        return
     await query.answer()
     try:
-        await bot.send_message(
-            query.message.chat.id, row.get("reply_text") or ""
-        )
+        await bot.send_message(chat_id, reply_text)
     except Exception as exc:
         logger.warning("发送底部按钮内容失败: %s", exc)
 
@@ -1000,10 +1112,16 @@ async def check_trc20_balance(message: types.Message, bot: Bot) -> bool:
             account = data[0]
             trx_balance = int(account.get("balance") or 0) / 1_000_000
             usdt_balance = 0.0
+            # Trongrid 的 trc20 是 [{合约地址: 余额字符串}] (键即合约地址),
+            # 不是 [{tokenId, balance}]; 两种结构都兼容读取。
             for token in account.get("trc20") or []:
-                if token.get("tokenId") == USDT_TRC20_CONTRACT:
-                    usdt_balance = int(token.get("balance") or 0) / 1_000_000
-                    break
+                if isinstance(token, dict):
+                    if USDT_TRC20_CONTRACT in token:
+                        usdt_balance = int(token[USDT_TRC20_CONTRACT] or 0) / 1_000_000
+                        break
+                    if token.get("tokenId") == USDT_TRC20_CONTRACT:
+                        usdt_balance = int(token.get("balance") or 0) / 1_000_000
+                        break
             trx_price = 0.0
             try:
                 ticker = await client.get(
