@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS group_llm_settings (
     system_prompt TEXT DEFAULT '你是一个群组智能管家，性格幽默、有问必答、语气简短有力。',
     trigger_on_mention BOOLEAN DEFAULT TRUE,
     trigger_on_reply BOOLEAN DEFAULT TRUE,
-    trigger_keywords TEXT DEFAULT '',        -- 逗号分隔的触发前缀 (如 "ai ,小助手 ")
+    trigger_keywords TEXT DEFAULT '',        -- 逗号分隔的触发关键词 (如 "ai ,小助手 ")，句中包含即触发
     context_enabled BOOLEAN DEFAULT TRUE,
     context_mode TEXT DEFAULT 'user_isolated', -- 'shared' (群共享) 或 'user_isolated' (按人隔离)
     context_limit INTEGER DEFAULT 6,         -- 历史记忆保留轮数

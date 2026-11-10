@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from typing import List, Optional, Tuple
 
 import httpx
@@ -12,7 +13,6 @@ from app.bot.handlers.group_features import (
     check_calculator,
     check_keyword_reply,
     check_lockdown_keyword,
-    check_rename_watch_with_bot,
     check_trc20_balance,
     enforce_force_subscribe,
     log_group_message,
@@ -69,15 +69,17 @@ def _check_llm_trigger(
     ):
         return True, raw_text
 
-    # 3. 关键词前缀触发 (逗号分隔，如 "ai ,小助手 ")
+    # 3. 关键词触发 (逗号分隔，如 "ai ,小助手 ")：句中包含即触发
     keywords_raw = llm_cfg.get("trigger_keywords") or ""
     if keywords_raw:
-        prefixes = [kw.strip() for kw in keywords_raw.split(",") if kw.strip()]
+        keywords = [kw.strip() for kw in keywords_raw.split(",") if kw.strip()]
         lower_text = raw_text.lower()
-        for prefix in prefixes:
-            if lower_text.startswith(prefix.lower()):
-                cleaned = raw_text[len(prefix) :].strip()
-                return True, cleaned or "你好"
+        for keyword in keywords:
+            if keyword.lower() in lower_text:
+                # 把关键词从句中去掉 (不只去前缀); 去完只剩空白就用全文
+                cleaned = re.sub(re.escape(keyword), "", raw_text, flags=re.IGNORECASE)
+                cleaned = re.sub(r"\s+", " ", cleaned).strip()
+                return True, cleaned or raw_text
 
     return False, ""
 
@@ -168,23 +170,24 @@ async def query_ollama_chat(
 async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     """
     群组与私聊消息统一管道：
-    0. 改名监控 (对比旧档案, 在登记前检查) → 成员活跃登记与消息归档 (群聊)
-    1. 先执行内容安全拦截与阶梯处罚 (moderation)
-    2. 强制订阅检查 (未订阅频道者禁言并提示)
-    2.5 话术关群关键词 (命中则锁群) —— 须在关键词自动回复之前
-    2.6 群底部按钮 (广告) —— 须在关键词自动回复之前, 否则“广告”会被关键词回复吃掉
-    2.7 发言积分发放 (首条/每条/随机, 受每日上限控制)
-    3. 关键词自动回复 (命中则回复并结束, 不调用 Ollama)
-    4. 积分指令 (签到/积分/排行/流水/兑换)
-    5. 抽奖与骰子指令 (抽奖/开奖/骰子)
-    6. 计算器 / 自动查U
-    7. 若未违规且满足唤醒条件，则路由至本地 Ollama 大模型对话
+    0. 成员活跃登记与消息归档 (群聊)
+    1. 话术关群关键词 (命中则锁群) —— 须在内容拦截之前：拦截对管理员豁免，
+       若关键词同时命中敏感词/紧急模式，普通群员的消息会被拦截先删掉，
+       管道直接返回，关群关键词永远走不到；管理员因豁免反而能锁群。
+    2. 内容安全拦截与阶梯处罚 (moderation)
+    3. 强制订阅检查 (未订阅频道者禁言并提示)
+    3.5 群底部按钮 (广告) —— 须在关键词自动回复之前, 否则“广告”会被关键词回复吃掉
+    3.6 发言积分发放 (首条/每条/随机, 受每日上限控制)
+    4. 关键词自动回复 (命中则回复并结束, 不调用 Ollama)
+    5. 积分指令 (签到/积分/排行/流水/兑换)
+    6. 抽奖与骰子指令 (抽奖/开奖/骰子)
+    7. 计算器 / 自动查U
+    8. 若未违规且满足唤醒条件，则路由至本地 Ollama 大模型对话
+
+    改名监控不在这里做：它在 GroupTrackerMiddleware 里、补记成员档案之前
+    检查 (中间件先跑，若先更新档案再对比，旧名新名永远相等，监控不到)。
     """
     is_group = message.chat.type in ("group", "supergroup")
-
-    # 第 -1 步：改名监控 (必须在 track_member_message 覆盖档案之前检查)
-    if is_group and message.from_user and (message.text or message.caption):
-        await check_rename_watch_with_bot(bot, message.chat.id, message.from_user)
 
     # 第零步：群聊成员活跃登记与消息归档 (含被拦截的消息也归档, 便于统计)
     if is_group and message.from_user and (message.text or message.caption):
@@ -196,7 +199,11 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
             message.text or message.caption or "",
         )
 
-    # 第一步：群聊安全审计拦截
+    # 第一步：话术关群关键词 (命中则锁群并结束；须在内容拦截之前)
+    if is_group and await check_lockdown_keyword(message, bot):
+        return
+
+    # 第二步：群聊安全审计拦截
     if is_group:
         violated = await inspect_and_moderate_message(message, bot)
         if violated:
@@ -205,39 +212,35 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     if not (message.text or message.caption) or not message.from_user:
         return
 
-    # 第二步：强制订阅检查
+    # 第三步：强制订阅检查
     if is_group and await enforce_force_subscribe(
         bot, message.chat.id, message.from_user, source_message=message
     ):
         return
 
-    # 第 2.5 步：话术关群关键词 (命中则锁群并结束；须在关键词自动回复之前)
-    if is_group and await check_lockdown_keyword(message, bot):
-        return
-
-    # 第 2.6 步：群底部按钮 (命中则弹出按钮并结束；须在关键词自动回复之前)
+    # 第 3.5 步：群底部按钮 (命中则弹出按钮并结束；须在关键词自动回复之前)
     if is_group and await check_bottom_buttons(message, bot):
         return
 
-    # 第 2.7 步：发言积分发放
+    # 第 3.6 步：发言积分发放
     if is_group:
         await award_message_points(message.chat.id, message.from_user)
 
-    # 第三步：关键词自动回复 (命中则直接回复, 不再调用 Ollama)
+    # 第四步：关键词自动回复 (命中则直接回复, 不再调用 Ollama)
     if is_group and await check_keyword_reply(message, bot):
         return
 
-    # 第四步：积分指令 (签到 / 积分 / 积分排行 / 流水 / 兑换关键词)
+    # 第五步：积分指令 (签到 / 积分 / 积分排行 / 流水 / 兑换关键词)
     if is_group and await handle_points_commands(message, bot):
         return
 
-    # 第五步：抽奖与骰子指令
+    # 第六步：抽奖与骰子指令
     if is_group and await handle_lottery_commands(message, bot):
         return
     if is_group and await handle_dice_command(message, bot):
         return
 
-    # 第六步：计算器 / 自动查U
+    # 第七步：计算器 / 自动查U
     if is_group and await check_calculator(message, bot):
         return
     if is_group and await check_trc20_balance(message, bot):

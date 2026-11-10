@@ -509,7 +509,7 @@
         <label class="flex items-center justify-between p-3.5 rounded-xl bg-black/30 border border-white/10 cursor-pointer">
           <div>
             <div class="text-xs font-semibold text-white">在本群启用本地 Ollama 智能助手</div>
-            <div class="text-[11px] text-slate-400">开启后群成员可通过 @提及、引用回复或关键词前缀唤醒 AI</div>
+            <div class="text-[11px] text-slate-400">开启后群成员可通过 @提及、引用回复或关键词唤醒 AI（消息中出现关键词即触发）</div>
           </div>
           <input id="llm-enabled" type="checkbox" class="w-4 h-4 accent-violet-500 rounded" />
         </label>
@@ -550,7 +550,7 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div class="p-3 rounded-xl bg-black/25 border border-white/10 space-y-1.5">
-            <label class="block text-xs font-semibold text-slate-200">自定义触发前缀 (逗号分隔)</label>
+            <label class="block text-xs font-semibold text-slate-200">自定义触发关键词 (逗号分隔，消息中出现即触发)</label>
             <input id="llm-trig-keywords" type="text" placeholder="ai ,小助手 ,问：" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
           </div>
 

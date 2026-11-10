@@ -1646,7 +1646,7 @@ async def api_get_group_stats(
         top_rows = await db.fetch(
             """
             SELECT user_id, username, COUNT(*) AS cnt FROM group_messages
-            WHERE group_id = ? GROUP BY user_id ORDER BY cnt DESC LIMIT 5
+            WHERE group_id = ? GROUP BY user_id, username ORDER BY cnt DESC LIMIT 5
             """,
             (group_id,),
         )
@@ -1665,7 +1665,14 @@ async def api_get_group_stats(
             (group_id,),
         )
 
-    day_counts = {r["day"]: r["cnt"] for r in daily_rows}
+    # PG 里 date(...) 返回 date 对象, SQLite 返回字符串; 统一成 'YYYY-MM-DD'
+    # 字符串再当字典键, 否则 d.isoformat() 查不到, 每天计数全是 0。
+    day_counts = {}
+    for r in daily_rows:
+        day_key = r["day"]
+        if hasattr(day_key, "isoformat"):
+            day_key = day_key.isoformat()
+        day_counts[str(day_key)] = r["cnt"]
     daily = [
         {"day": d.isoformat(), "count": day_counts.get(d.isoformat(), 0)} for d in days
     ]

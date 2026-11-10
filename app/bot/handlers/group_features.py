@@ -655,6 +655,19 @@ async def _expire_keyword_locks(bot: Bot) -> None:
                     "话术锁到期, 定时窗口内, 锁已移交 schedule (group=%s)", group_id
                 )
                 continue
+            # 紧急模式开启时不许话术锁到期把群解了: 紧急锁是另外一回事,
+            # 权限不能由话术锁的到期来解除 (否则紧急模式形同虚设)。
+            # 锁状态先留着, 等紧急模式关掉后下个循环再正常解锁。
+            async with get_db() as db:
+                emg = await db.fetchrow(
+                    "SELECT lockdown_mode FROM group_emergency_settings WHERE group_id = ?",
+                    (group_id,),
+                )
+            if emg and emg.get("lockdown_mode"):
+                logger.info(
+                    "话术锁到期, 但紧急模式开启中, 暂不解锁 (group=%s)", group_id
+                )
+                continue
             await _unlock_group(bot, group_id, "keyword")
             async with get_db() as db:
                 state = await db.fetchrow(

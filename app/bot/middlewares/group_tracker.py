@@ -3,7 +3,7 @@ from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware, Router
 from aiogram.types import TelegramObject, Message, CallbackQuery, ChatMemberUpdated, Update
 
-from app.bot.handlers.group_features import track_member_seen
+from app.bot.handlers.group_features import check_rename_watch_with_bot, track_member_seen
 from app.database.db import get_db, ensure_group_initialized
 
 logger = logging.getLogger(__name__)
@@ -50,27 +50,27 @@ class GroupTrackerMiddleware(BaseMiddleware):
         if chat and chat.type in ("group", "supergroup"):
             await ensure_group_initialized(chat.id, chat.title or f"Group {chat.id}")
 
+        # 改名监控 (必须在 track_member_seen 更新档案之前对比旧档案)。
+        # 不能放管道里做: 中间件先跑, 会先把档案更新成当前名字, 管道再对比
+        # 时旧名新名永远相等, 监控永远不触发。Bot 从 data 取, 取不到时跳过。
         # 成员统一登记: 任意内容类型的群消息 (文字/图片/贴纸/语音/投票/命令等)
         # 与群内回调 (点按钮/投票/竞猜) 都补记发言人档案, 只写档案不加消息数
         # (发言计数仍由 pipeline 的 track_member_message 负责, 不会翻倍)。
         # Bot 自己排除; 登记失败绝不能阻断后续处理。
         try:
-            if isinstance(inner, Message):
-                if (
-                    chat
-                    and chat.type in ("group", "supergroup")
-                    and inner.from_user
-                    and not inner.from_user.is_bot
-                ):
-                    await track_member_seen(chat.id, inner.from_user)
-            elif isinstance(inner, CallbackQuery):
-                if (
-                    chat
-                    and chat.type in ("group", "supergroup")
-                    and inner.from_user
-                    and not inner.from_user.is_bot
-                ):
-                    await track_member_seen(chat.id, inner.from_user)
+            _user = None
+            if isinstance(inner, (Message, CallbackQuery)):
+                _user = inner.from_user
+            if (
+                _user
+                and not _user.is_bot
+                and chat
+                and chat.type in ("group", "supergroup")
+            ):
+                _mw_bot = data.get("bot")
+                if _mw_bot is not None:
+                    await check_rename_watch_with_bot(_mw_bot, chat.id, _user)
+                await track_member_seen(chat.id, _user)
         except Exception as exc:
             logger.warning("中间件补记成员失败: %s", exc)
 
