@@ -312,24 +312,23 @@ async def main():
     check("发言计数为 1", mrow and mrow["message_count"] == 1, str(mrow))
     check("消息已归档到 group_messages", (await msg_count(MEMBER_ID)) == 1)
 
-    # ---------- T2 [Bug 1 核心] 话术关群: 普通群员触发, 管理员豁免 ----------
-    print("T2 [Bug1核心] 话术关群: 普通群员触发 / 管理员豁免")
+    # ---------- T2 [Bug 1 核心] 话术关群: 仅管理员可触发 ----------
+    print("T2 [Bug1核心] 话术关群: 仅管理员可触发")
     await clear_group_config()
     await seed_lockdown_keyword("关群", allow_admin_trigger=0)
+    bot.calls.clear()
     await feed("大家关群一下", member_user())
     st = await lock_state()
-    check("普通群员发关键词 -> 锁群", st and st["locked"] == 1, str(st))
-    check("锁来源是 keyword", st and st["source"] == "keyword", str(st))
-    check("发了锁群公告", len(sent_texts(bot, "已锁定")) >= 1)
-    async with get_db() as db:
-        await db.execute("DELETE FROM group_lock_state WHERE group_id = ?", (GROUP_ID,))
+    check("普通群员发关键词 -> 不锁群", not st or st["locked"] == 0, str(st))
+    check("普通群员触发不发锁群公告", len(sent_texts(bot, "已锁定")) == 0)
     bot.calls.clear()
     await feed("大家关群一下", admin_user())
     st = await lock_state()
-    check("管理员发关键词 -> 豁免不锁 (allow_admin_trigger=0)", not st or st["locked"] == 0, str(st))
-    check("管理员触发不发锁群公告", len(sent_texts(bot, "已锁定")) == 0)
+    check("管理员发关键词 -> 锁群", st and st["locked"] == 1, str(st))
+    check("锁来源是 keyword", st and st["source"] == "keyword", str(st))
+    check("发了锁群公告", len(sent_texts(bot, "已锁定")) >= 1)
 
-    # ---------- T3 [Bug 1 机制] 敏感词含关群关键词 -> 普通群员被拦截吃掉 ----------
+    # ---------- T3 [Bug 1 机制] 敏感词含关群关键词 ----------
     print("T3 [Bug1机制] 敏感词命中关群关键词: 普通群员 vs 管理员")
     await clear_group_config()
     await seed_sensitive_rule("关群", "contains", "delete_only")
@@ -337,23 +336,25 @@ async def main():
     bot.calls.clear()
     await feed("关群", member_user())
     st = await lock_state()
-    check("普通群员发关键词 (敏感词重叠) -> 仍要锁群", st and st["locked"] == 1, str(st))
-    async with get_db() as db:
-        await db.execute("DELETE FROM group_lock_state WHERE group_id = ?", (GROUP_ID,))
+    check("普通群员发关键词 (敏感词重叠) -> 不锁群", not st or st["locked"] == 0, str(st))
     bot.calls.clear()
     await feed("关群", admin_user())
     st = await lock_state()
-    check("管理员发关键词 (allow_admin_trigger=1) -> 锁群", st and st["locked"] == 1, str(st))
+    check("管理员发关键词 (敏感词重叠) -> 锁群", st and st["locked"] == 1, str(st))
 
-    # ---------- T4 [Bug 1 机制2] 紧急锁群模式开启 -> 普通群员关键词也被吃掉 ----------
-    print("T4 [Bug1机制2] 紧急模式开启: 普通群员发关键词")
+    # ---------- T4 [Bug 1 机制2] 紧急锁群模式开启 ----------
+    print("T4 [Bug1机制2] 紧急模式开启: 普通群员 vs 管理员发关键词")
     await clear_group_config()
     await seed_emergency(lockdown_mode=1)
     await seed_lockdown_keyword("关群", allow_admin_trigger=0)
     bot.calls.clear()
     await feed("关群", member_user())
     st = await lock_state()
-    check("紧急模式下普通群员发关键词 -> 仍要锁群", st and st["locked"] == 1, str(st))
+    check("紧急模式下普通群员发关键词 -> 不锁群", not st or st["locked"] == 0, str(st))
+    bot.calls.clear()
+    await feed("关群", admin_user())
+    st = await lock_state()
+    check("紧急模式下管理员发关键词 -> 锁群", st and st["locked"] == 1, str(st))
 
     # ---------- T4b 紧急模式下话术锁到期不许把紧急锁也解了 ----------
     print("T4b 紧急模式下话术锁到期 -> 不解锁")

@@ -685,7 +685,7 @@ async def _expire_keyword_locks(bot: Bot) -> None:
 async def check_lockdown_keyword(message: types.Message, bot: Bot) -> bool:
     """话术关群: 群消息命中关群关键词时锁群并公告。
 
-    管理员默认豁免触发; 仅当该关键词 allow_admin_trigger=1 时管理员也可触发。
+    仅管理员可触发：普通群员发关键词不锁群（防止任何人一句话就把群锁了）。
     匹配不区分大小写, 读 text 或 caption。
     """
     if message.chat.type not in ("group", "supergroup"):
@@ -709,14 +709,9 @@ async def check_lockdown_keyword(message: types.Message, bot: Bot) -> bool:
                 break
         if not hit:
             return False
-        if await _is_group_admin(bot, message.chat.id, message.from_user.id):
-            if not hit.get("allow_admin_trigger"):
-                logger.debug(
-                    "话术关群: 管理员触发已豁免 (group=%s, keyword=%s)",
-                    message.chat.id,
-                    hit.get("keyword"),
-                )
-                return False
+        # 仅管理员可触发话术关群；普通群员发关键词不锁群
+        if not await _is_group_admin(bot, message.chat.id, message.from_user.id):
+            return False
         minutes = int(hit.get("lock_minutes") or 30)
         until = (datetime.now(CST) + timedelta(minutes=minutes)).isoformat(timespec="seconds")
         await _lock_group(bot, message.chat.id, "keyword", locked_until=until)
