@@ -1206,7 +1206,11 @@
           <input id="ra-image" type="text" placeholder="图片 URL (可选)" class="sm:col-span-3 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-white field" />
           <input id="ra-link" type="text" placeholder="跳转链接 (可选)" class="sm:col-span-3 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-white field" />
           <input id="ra-text" type="text" placeholder="广告文案" class="sm:col-span-4 px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-white field" />
-          <button type="button" onclick="addRotatingAd()" class="sm:col-span-2 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 text-white font-semibold text-xs transition">添加广告</button>
+          <input id="ra-edit-id" type="hidden" value="" />
+          <div class="sm:col-span-2 flex gap-2">
+            <button type="button" id="ra-submit-btn" onclick="saveRotatingAd()" class="flex-1 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 text-white font-semibold text-xs transition">添加广告</button>
+            <button type="button" id="ra-cancel-btn" onclick="cancelEditRotatingAd()" class="hidden px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs border border-white/10 transition">取消</button>
+          </div>
         </div>
         <div id="rotating-ads-list" class="space-y-2"></div>
       </div>
@@ -4116,6 +4120,8 @@
 
     // --- 9.6 轮播广告 (Rotating Ads) ---
     async function loadRotatingAds() {
+      // 列表刷新时退出编辑模式, 防止切群后旧群的编辑内容残留
+      cancelEditRotatingAd();
       const res = await apiRequest('GET', `/api/group/${appState.activeGroupId}/rotating-ads`);
       appState.rotatingAds = (res && res.ads) || [];
       appState.rotatingAdsSettings = (res && res.settings) || null;
@@ -4160,29 +4166,84 @@
           </div>
           <div class="flex gap-1.5 shrink-0">
             <button type="button" onclick="toggleRotatingAd(${a.id}, ${a.enabled ? 0 : 1})" class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs">${a.enabled ? '暂停' : '恢复'}</button>
+            <button type="button" onclick="editRotatingAd(${a.id})" class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-violet-300 text-xs">编辑</button>
             <button type="button" onclick="deleteRotatingAd(${a.id})" class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 text-xs">删除</button>
           </div>
         </div>
       `).join('');
     }
 
-    async function addRotatingAd() {
+    // 轮播广告编辑状态: 正在编辑的广告 id (ra-edit-id 隐藏字段), 空表示新增模式
+    function getEditingRotatingAdId() {
+      const el = document.getElementById('ra-edit-id');
+      return el && el.value ? Number(el.value) : null;
+    }
+
+    function setRotatingAdFormMode(editing) {
+      const btn = document.getElementById('ra-submit-btn');
+      const cancelBtn = document.getElementById('ra-cancel-btn');
+      if (btn) {
+        btn.textContent = editing ? '保存修改' : '添加广告';
+        btn.className = editing
+          ? 'flex-1 px-3 py-2 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition'
+          : 'flex-1 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 text-white font-semibold text-xs transition';
+      }
+      if (cancelBtn) cancelBtn.classList.toggle('hidden', !editing);
+    }
+
+    function editRotatingAd(aid) {
+      const a = (appState.rotatingAds || []).find(x => x.id === aid);
+      if (!a) return;
+      document.getElementById('ra-edit-id').value = String(a.id);
+      document.getElementById('ra-image').value = a.image_url || '';
+      document.getElementById('ra-link').value = a.link_url || '';
+      document.getElementById('ra-text').value = a.text || '';
+      setRotatingAdFormMode(true);
+      document.getElementById('ra-image').focus();
+    }
+
+    function cancelEditRotatingAd() {
+      const editEl = document.getElementById('ra-edit-id');
+      if (editEl) editEl.value = '';
+      document.getElementById('ra-image').value = '';
+      document.getElementById('ra-link').value = '';
+      document.getElementById('ra-text').value = '';
+      setRotatingAdFormMode(false);
+    }
+
+    async function saveRotatingAd() {
       const image = (document.getElementById('ra-image').value || '').trim();
       const link = (document.getElementById('ra-link').value || '').trim();
       const text = (document.getElementById('ra-text').value || '').trim();
       if (!image && !text) { showToast('广告至少需要图片或文案', 'error'); return; }
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/rotating-ads`, { image_url: image, link_url: link, text, enabled: true });
-      document.getElementById('ra-image').value = '';
-      document.getElementById('ra-link').value = '';
-      document.getElementById('ra-text').value = '';
+      const editId = getEditingRotatingAdId();
+      const payload = { image_url: image, link_url: link, text };
+      if (editId) {
+        // 编辑模式: 带 id 走后端 UPDATE, enabled 保持该广告原来的值 (不因表单无开关而改动)
+        const orig = (appState.rotatingAds || []).find(x => x.id === editId);
+        payload.id = editId;
+        payload.enabled = orig ? !!orig.enabled : true;
+      } else {
+        payload.enabled = true;
+      }
+      try {
+        await apiRequest('POST', `/api/group/${appState.activeGroupId}/rotating-ads`, payload);
+      } catch (err) {
+        // 保存失败: 不清空表单、不退出编辑模式, 让用户改了再试
+        showToast('保存失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
+      cancelEditRotatingAd();
       await loadRotatingAds();
       renderHubCards();
-      showToast('轮播广告已添加');
+      showToast(editId ? '轮播广告已更新' : '轮播广告已添加');
     }
 
     async function toggleRotatingAd(aid, enabled) {
       const a = appState.rotatingAds.find(x => x.id === aid);
       if (!a) return;
+      // 正在编辑这条就退出编辑模式, 避免编辑状态残留
+      if (getEditingRotatingAdId() === aid) cancelEditRotatingAd();
       await apiRequest('POST', `/api/group/${appState.activeGroupId}/rotating-ads`, { id: aid, image_url: a.image_url || '', link_url: a.link_url || '', text: a.text || '', enabled: !!enabled });
       await loadRotatingAds();
       renderHubCards();
@@ -4190,6 +4251,8 @@
     }
 
     async function deleteRotatingAd(aid) {
+      // 正在编辑这条就退出编辑模式, 避免编辑状态残留
+      if (getEditingRotatingAdId() === aid) cancelEditRotatingAd();
       await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/rotating-ads/${aid}`);
       await loadRotatingAds();
       renderHubCards();
