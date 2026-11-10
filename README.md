@@ -1,6 +1,6 @@
 # Telegram 群管与本地大模型交互 Bot (`tg-group-bot`)
 
-对标 `@nmnmfunbot` 与 `@fangzhang_bot` 的高性能 Telegram 群组自动化管理与本地 Ollama 大模型智能交互系统。采用 **aiogram v3 + FastAPI + aiosqlite + 单文件 Tailwind/WebApp 控制面板** 架构，支持 Docker Compose 一键容器化交付。
+对标 `@nmnmfunbot` 与 `@fangzhang_bot` 的高性能 Telegram 群组自动化管理与本地 Ollama 大模型智能交互系统。采用 **aiogram v3 + FastAPI + SQLite / PostgreSQL + 单文件 Tailwind/WebApp 控制面板** 架构，支持 Docker Compose 一键容器化交付。默认用本地 SQLite；设置 `DATABASE_URL`（如免费 Neon Postgres 连接串）后改用外部 Postgres，重新部署不再丢配置。
 
 ---
 

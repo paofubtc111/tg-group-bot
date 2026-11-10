@@ -13,6 +13,9 @@ class Settings:
     WEBAPP_BASE_URL: str = os.getenv("WEBAPP_BASE_URL", "https://localhost:8080").rstrip("/")
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434").rstrip("/")
     DATABASE_PATH: str = os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "bot.db"))
+    # 设为 Postgres 连接串 (如 Neon 的 postgresql://...) 时用 asyncpg 连接外部库;
+    # 为空时继续用本地 SQLite (DATABASE_PATH), 本地开发不受影响。
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
     SCHEMA_PATH: str = str(Path(__file__).resolve().parent / "database" / "schema.sql")
     TEMPLATES_DIR: str = str(Path(__file__).resolve().parent / "web" / "templates")
     OLLAMA_MAX_CONCURRENCY: int = int(os.getenv("OLLAMA_MAX_CONCURRENCY", "2"))
