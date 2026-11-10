@@ -9,6 +9,7 @@ from typing import Dict, Optional, Tuple
 
 import httpx
 from aiogram import Bot, F, Router, types
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import (
     ChatPermissions,
     InlineKeyboardButton,
@@ -898,6 +899,61 @@ async def on_pinned_service_message(message: types.Message, bot: Bot) -> None:
 # ==================== 用户改名监控 ====================
 
 
+async def check_rename_for_user(
+    bot: Bot, chat_id: int, user: types.User, row: Optional[dict] = None
+) -> bool:
+    """改名对比+公告+更新档案（消息触发与定时巡查共用的核心）。
+
+    调用方负责确认该群改名监控已开启。row 可由调用方传入已查到的
+    group_members 行（username / first_name / message_count），不传则自己查。
+    检测到改名时按现有格式公告，并立刻把档案更新成新名字（否则巡查下轮会重复公告）。
+    guard：message_count<=0 且无旧名时不公告（没历史可比）。
+    返回 True 表示检测到改名并已公告且档案已更新。
+    """
+    if bot is None or user is None or user.is_bot:
+        return False
+    try:
+        if row is None:
+            async with get_db() as db:
+                row = await db.fetchrow(
+                    "SELECT username, first_name, message_count FROM group_members WHERE group_id = ? AND user_id = ?",
+                    (chat_id, user.id),
+                )
+        if not row:
+            return False
+        old_username = row.get("username") or ""
+        old_name = row.get("first_name") or ""
+        new_username = user.username or ""
+        new_name = user.first_name or ""
+        changes = []
+        if old_name and new_name and old_name != new_name:
+            changes.append(f"昵称「{old_name}」→「{new_name}」")
+        if old_username != new_username:
+            changes.append(
+                f"用户名 @{old_username or '无'} → @{new_username or '无'}"
+            )
+        if not changes:
+            return False
+        if int(row.get("message_count") or 0) <= 0 and not old_name:
+            return False
+        who = f"@{new_username}" if new_username else html.escape(new_name or str(user.id))
+        await bot.send_message(
+            chat_id,
+            f"👀 改名监控：{who} 修改了{'、'.join(changes)}。",
+        )
+        # 立刻把档案更新成新名字，否则下轮巡查会重复公告
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE group_members SET username = ?, first_name = ?, last_seen = ? WHERE group_id = ? AND user_id = ?",
+                (new_username, new_name, now, chat_id, user.id),
+            )
+        return True
+    except Exception as exc:
+        logger.warning("改名监控公告失败: %s", exc)
+        return False
+
+
 async def check_rename_watch_with_bot(
     bot: Bot, chat_id: int, user: types.User
 ) -> None:
@@ -911,34 +967,78 @@ async def check_rename_watch_with_bot(
             )
             if not watch or not watch.get("enabled"):
                 return
-            row = await db.fetchrow(
-                "SELECT username, first_name, message_count FROM group_members WHERE group_id = ? AND user_id = ?",
-                (chat_id, user.id),
-            )
-        if not row:
-            return
-        old_username = row.get("username") or ""
-        old_name = row.get("first_name") or ""
-        new_username = user.username or ""
-        new_name = user.first_name or ""
-        changes = []
-        if old_name and new_name and old_name != new_name:
-            changes.append(f"昵称「{old_name}」→「{new_name}」")
-        if old_username != new_username:
-            changes.append(
-                f"用户名 @{old_username or '无'} → @{new_username or '无'}"
-            )
-        if not changes:
-            return
-        if int(row.get("message_count") or 0) <= 0 and not old_name:
-            return
-        who = f"@{new_username}" if new_username else html.escape(new_name or str(user.id))
-        await bot.send_message(
-            chat_id,
-            f"👀 改名监控：{who} 修改了{'、'.join(changes)}。",
-        )
     except Exception as exc:
         logger.warning("改名监控公告失败: %s", exc)
+        return
+    await check_rename_for_user(bot, chat_id, user)
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """是否是 Telegram 限流错误（429 / RetryAfter / FloodControl）。"""
+    if isinstance(exc, TelegramRetryAfter):
+        return True
+    name = type(exc).__name__.lower()
+    if "retryafter" in name or "flood" in name or "ratelimit" in name:
+        return True
+    msg = str(exc).lower()
+    return "retry after" in msg or "flood control" in msg or "too many requests" in msg
+
+
+async def _check_renames_once(bot: Bot) -> None:
+    """单次改名巡查：只查改名监控已开启的群，逐个成员核对当前名字。"""
+    try:
+        async with get_db() as db:
+            members = await db.fetch(
+                """
+                SELECT gm.group_id, gm.user_id, gm.username, gm.first_name, gm.message_count
+                FROM group_members gm
+                JOIN group_rename_watch w ON w.group_id = gm.group_id AND w.enabled = 1
+                ORDER BY gm.group_id, gm.user_id
+                """
+            )
+    except Exception as exc:
+        logger.warning("改名巡查读取成员失败: %s", exc)
+        return
+    for m in members:
+        chat_id = m["group_id"]
+        user_id = m["user_id"]
+        try:
+            member = await bot.get_chat_member(chat_id, user_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if _is_rate_limit_error(exc):
+                logger.warning("改名巡查遇到 Telegram 限流，本轮停止: %s", exc)
+                return
+            logger.debug(
+                "改名巡查跳过成员 (group=%s, user=%s): %s", chat_id, user_id, exc
+            )
+            continue
+        status = getattr(member, "status", "")
+        if status in ("left", "kicked"):
+            continue
+        user = getattr(member, "user", None)
+        if user is None or user.is_bot:
+            continue
+        await check_rename_for_user(bot, chat_id, user, row=m)
+        await asyncio.sleep(0.05)
+
+
+async def rename_watch_loop(bot: Bot, interval_seconds: int = 1800) -> None:
+    """改名定时巡查后台循环：每 interval_seconds 查一遍已开启改名监控的群。
+
+    启动后先 sleep 一轮间隔再查第一轮（避免启动时 burst）。
+    收到 CancelledError 重新抛出以便正常关停。
+    """
+    logger.info("改名定时巡查已启动 (每 %s 秒检查一次)", interval_seconds)
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await _check_renames_once(bot)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("改名巡查异常: %s", exc)
 
 
 # ==================== 群底部按钮 ====================
