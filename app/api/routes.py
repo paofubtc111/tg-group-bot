@@ -104,6 +104,8 @@ class AINewsConfigPayload(BaseModel):
     breaking_high_signal: str = ""
     breaking_models: str = ""
     breaking_events: str = ""
+    # 每日突发上限（1-10，默认 3）
+    max_breaking_per_day: int = Field(default=3, ge=1, le=10)
 
 
 class EmergencyConfigPayload(BaseModel):
@@ -869,23 +871,27 @@ async def api_save_ai_news(
         await db.execute(
             "INSERT OR IGNORE INTO ai_news_settings "
             "(group_id, daily_enabled, daily_time, breaking_enabled, "
-            "breaking_high_signal, breaking_models, breaking_events) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "breaking_high_signal, breaking_models, breaking_events, "
+            "max_breaking_per_day) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (group_id, int(payload.daily_enabled), payload.daily_time.strip(),
              int(payload.breaking_enabled),
              payload.breaking_high_signal.strip(),
              payload.breaking_models.strip(),
-             payload.breaking_events.strip()),
+             payload.breaking_events.strip(),
+             payload.max_breaking_per_day),
         )
         await db.execute(
             "UPDATE ai_news_settings SET daily_enabled = ?, daily_time = ?, "
             "breaking_enabled = ?, breaking_high_signal = ?, "
-            "breaking_models = ?, breaking_events = ? WHERE group_id = ?",
+            "breaking_models = ?, breaking_events = ?, "
+            "max_breaking_per_day = ? WHERE group_id = ?",
             (int(payload.daily_enabled), payload.daily_time.strip(),
              int(payload.breaking_enabled),
              payload.breaking_high_signal.strip(),
              payload.breaking_models.strip(),
-             payload.breaking_events.strip(), group_id),
+             payload.breaking_events.strip(),
+             payload.max_breaking_per_day, group_id),
         )
         row = await db.fetchrow(
             "SELECT * FROM ai_news_settings WHERE group_id = ?", (group_id,)
@@ -899,6 +905,28 @@ async def api_save_ai_news(
         f"更新 AI 新闻配置: 早报={payload.daily_enabled} {payload.daily_time}, 突发={payload.breaking_enabled}",
     )
     return {"status": "ok", "ai_news": row}
+
+
+@api_router.post("/api/group/{group_id}/ai-news/test-digest")
+async def api_test_digest(
+    group_id: int, request: Request, user: dict = Depends(get_current_user)
+) -> dict:
+    await require_group_admin(request, group_id, user)
+    await ensure_group_initialized(group_id)
+    bot = getattr(request.app.state, "bot", None)
+    if bot is None:
+        raise HTTPException(status_code=503, detail="机器人未启动，稍后再试")
+    from app.bot.handlers.ai_news import send_test_digest
+
+    result = await send_test_digest(bot, group_id)
+    await record_audit_log(
+        group_id,
+        int(user["id"]),
+        user.get("first_name") or "Admin",
+        "test_ai_news_digest",
+        f"手动发送测试早报: {result.get('status')}, {result.get('items', 0)} 条新闻",
+    )
+    return result
 
 
 # ==================== 7. 紧急模式与权限 / 操作日志 / 导入导出 ====================

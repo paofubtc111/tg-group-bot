@@ -288,6 +288,15 @@ def _breaking_keywords(cfg: dict) -> tuple:
     )
 
 
+def _max_breaking_per_day(cfg: dict) -> int:
+    """取某群的每日突发上限；没配或非法就用默认 3（限制 1-10）。"""
+    try:
+        v = int((cfg or {}).get("max_breaking_per_day") or 0)
+    except (TypeError, ValueError):
+        v = 0
+    return v if 1 <= v <= 10 else MAX_BREAKING_PER_DAY
+
+
 def _is_breaking(title: str, high=None, models=None, events=None) -> bool:
     lowered = title.lower()
     if any(kw.lower() in lowered for kw in (high or BREAKING_HIGH_SIGNAL)):
@@ -341,7 +350,7 @@ async def check_breaking_news(bot: Bot) -> None:
                 (group_id, today),
             )
         already = int((sent_today or {}).get("c") or 0)
-        budget = MAX_BREAKING_PER_DAY - already
+        budget = _max_breaking_per_day(cfg) - already
         if budget <= 0:
             continue
         for it in breaking[:budget]:
@@ -430,6 +439,49 @@ async def send_daily_digest(bot: Bot) -> None:
                 await db.execute(
                     "UPDATE ai_news_items SET sent_digest = 1 WHERE id = ?", (it["id"],)
                 )
+
+
+async def send_test_digest(bot: Bot, group_id: int) -> dict:
+    """手动跑一条昨日早报（测试用）：不看时间、不记 last_digest_date，可重复跑。
+
+    返回 {"status": "ok"/"no_news", "date", "items", "fallback", "text"}。
+    注意：和 send_daily_digest 里的取数/拼文案逻辑保持一致，改一处要同步另一处。
+    """
+    yesterday = datetime.now(CST).date() - timedelta(days=1)
+    date_label = f"{yesterday.month}月{yesterday.day}日"
+    async with get_db() as db:
+        items = await db.fetch(
+            "SELECT * FROM ai_news_items "
+            "WHERE substr(fetched_at, 1, 10) = ? OR substr(published_at, 1, 10) = ? "
+            "ORDER BY id DESC LIMIT 10",
+            (yesterday.isoformat(), yesterday.isoformat()),
+        )
+    if not items:
+        return {"status": "no_news", "date": date_label, "items": 0, "fallback": False, "text": ""}
+    base_url, model_name = await get_group_llm(group_id)
+    system_prompt = DIGEST_SYSTEM_PROMPT.replace("{date}", date_label)
+    user_prompt = build_digest_user_prompt(date_label, items)
+    digest = await query_ollama_chat(
+        base_url=base_url,
+        model_name=model_name,
+        system_prompt=system_prompt,
+        history=[],
+        user_prompt=user_prompt,
+    )
+    used_fallback = False
+    if not digest:
+        digest = build_fallback_digest(date_label, items)
+        used_fallback = True
+        logger.warning("测试早报 LLM 摘要失败 (group=%s)，已降级为标题清单", group_id)
+    try:
+        await bot.send_message(chat_id=group_id, text=digest)
+        logger.info("测试早报已发 (group=%s, %s 条新闻)", group_id, len(items))
+    except Exception as exc:
+        logger.warning("测试早报发送失败 (group=%s): %s", group_id, exc)
+        return {"status": "send_failed", "date": date_label, "items": len(items),
+                "fallback": used_fallback, "text": digest}
+    return {"status": "ok", "date": date_label, "items": len(items),
+            "fallback": used_fallback, "text": digest}
 
 
 async def ai_news_loop(bot: Bot, interval_seconds: int = LOOP_SLEEP_SECONDS) -> None:

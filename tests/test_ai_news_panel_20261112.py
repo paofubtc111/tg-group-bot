@@ -100,12 +100,40 @@ def main():
     ok &= check("读回模型名", data["ai_news"]["breaking_models"] == "gpt-5, claude, qwen")
     ok &= check("读回事件词", data["ai_news"]["breaking_events"] == "发布, 上线")
 
+    # 6b. 每日上限：保存 5 条，读回 5 条
+    r = client.post(
+        f"/api/group/{GROUP}/ai-news",
+        json={
+            "daily_enabled": True, "daily_time": "09:00", "breaking_enabled": True,
+            "breaking_high_signal": "", "breaking_models": "", "breaking_events": "",
+            "max_breaking_per_day": 5,
+        },
+    )
+    ok &= check("POST 上限 200", r.status_code == 200)
+    r = client.get(f"/api/group/{GROUP}/ai-news")
+    ok &= check("读回上限 5", r.json()["ai_news"]["max_breaking_per_day"] == 5)
+    # 上限越界被拒（0 和 11 都 422）
+    r = client.post(
+        f"/api/group/{GROUP}/ai-news",
+        json={"daily_enabled": True, "daily_time": "09:00", "breaking_enabled": True,
+              "max_breaking_per_day": 0},
+    )
+    ok &= check("上限 0 被拒 422", r.status_code == 422)
+    r = client.post(
+        f"/api/group/{GROUP}/ai-news",
+        json={"daily_enabled": True, "daily_time": "09:00", "breaking_enabled": True,
+              "max_breaking_per_day": 11},
+    )
+    ok &= check("上限 11 被拒 422", r.status_code == 422)
+
     # 7. 面板含关键词输入框
     r = client.get("/")
     ok &= check("面板含高信号词输入框", 'id="ainews-kw-high"' in r.text)
     ok &= check("面板含模型名输入框", 'id="ainews-kw-models"' in r.text)
     ok &= check("面板含事件词输入框", 'id="ainews-kw-events"' in r.text)
     ok &= check("面板 allViews 含 ai-news", "'ai-news'" in r.text)
+    ok &= check("面板含上限输入框", 'id="ainews-max-breaking"' in r.text)
+    ok &= check("面板含测试早报按钮", 'sendTestDigest()' in r.text)
 
     # 8. 非法时间格式被拒（422）
     r = client.post(

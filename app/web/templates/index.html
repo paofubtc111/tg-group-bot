@@ -585,9 +585,14 @@
             <h2 class="text-sm font-bold text-white">📰 AI 新闻早报与突发快讯</h2>
             <p class="text-xs text-slate-400 mt-0.5">RSS 每 30 分钟拉一次 AI 媒体，早报由 qwen2.5 翻译摘要；Ollama 不通时早报降级为标题+链接清单</p>
           </div>
-          <button type="button" onclick="saveAINewsSettings()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition shadow-md shadow-violet-500/25">
-            保存 AI 新闻配置
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="sendTestDigest()" class="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition border border-white/15">
+              📤 发送测试早报
+            </button>
+            <button type="button" onclick="saveAINewsSettings()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition shadow-md shadow-violet-500/25">
+              保存 AI 新闻配置
+            </button>
+          </div>
         </div>
 
         <label class="flex items-center justify-between p-3.5 rounded-xl bg-black/30 border border-white/10 cursor-pointer">
@@ -617,6 +622,12 @@
           </div>
           <input id="ainews-breaking-enabled" type="checkbox" class="w-4 h-4 accent-violet-500 rounded" />
         </label>
+
+        <div class="p-3 rounded-xl bg-black/25 border border-white/10 space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-200">每日突发快讯上限（条）</label>
+          <input id="ainews-max-breaking" type="number" min="1" max="10" value="3" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
+          <div class="text-[11px] text-slate-400">每天最多发几条突发快讯，1-10 条，默认 3 条</div>
+        </div>
 
         <div class="p-3 rounded-xl bg-black/25 border border-white/10 space-y-3">
           <div>
@@ -1748,8 +1759,8 @@
         }
       },
       aiNews: {
-        '-1001889002': { group_id: -1001889002, daily_enabled: true, daily_time: '09:00', breaking_enabled: true, last_digest_date: '2026-11-11', breaking_high_signal: '', breaking_models: '', breaking_events: '' },
-        '-1001889003': { group_id: -1001889003, daily_enabled: false, daily_time: '09:00', breaking_enabled: false, last_digest_date: '', breaking_high_signal: '', breaking_models: '', breaking_events: '' }
+        '-1001889002': { group_id: -1001889002, daily_enabled: true, daily_time: '09:00', breaking_enabled: true, last_digest_date: '2026-11-11', breaking_high_signal: '', breaking_models: '', breaking_events: '', max_breaking_per_day: 3 },
+        '-1001889003': { group_id: -1001889003, daily_enabled: false, daily_time: '09:00', breaking_enabled: false, last_digest_date: '', breaking_high_signal: '', breaking_models: '', breaking_events: '', max_breaking_per_day: 3 }
       },
       emergency: {
         '-1001889002': { group_id: -1001889002, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: true },
@@ -2102,6 +2113,10 @@
           llm: mockStore.llm[gKey],
           history_count: (mockStore.llm[gKey] && mockStore.llm[gKey].history_count) || 0
         };
+      }
+      if (sub === 'ai-news/test-digest' && method === 'POST') {
+        pushMockLog(gid, 'test_ai_news_digest', '手动发送测试早报: ok, 3 条新闻');
+        return { status: 'ok', date: '11月11日', items: 3, fallback: true, text: '' };
       }
       if (sub === 'ai-news') {
         if (method === 'POST' && body) {
@@ -3123,6 +3138,7 @@
       document.getElementById('ainews-daily-enabled').checked = !!a.daily_enabled;
       document.getElementById('ainews-daily-time').value = a.daily_time || '09:00';
       document.getElementById('ainews-breaking-enabled').checked = !!a.breaking_enabled;
+      document.getElementById('ainews-max-breaking').value = a.max_breaking_per_day ?? 3;
       document.getElementById('ainews-kw-high').value = a.breaking_high_signal || '';
       document.getElementById('ainews-kw-models').value = a.breaking_models || '';
       document.getElementById('ainews-kw-events').value = a.breaking_events || '';
@@ -3137,11 +3153,23 @@
         breaking_enabled: document.getElementById('ainews-breaking-enabled').checked,
         breaking_high_signal: document.getElementById('ainews-kw-high').value.trim(),
         breaking_models: document.getElementById('ainews-kw-models').value.trim(),
-        breaking_events: document.getElementById('ainews-kw-events').value.trim()
+        breaking_events: document.getElementById('ainews-kw-events').value.trim(),
+        max_breaking_per_day: Math.min(10, Math.max(1, Number(document.getElementById('ainews-max-breaking').value || 3)))
       };
       await apiRequest('POST', `/api/group/${appState.activeGroupId}/ai-news`, payload);
       await refreshAllGroupData();
       showToast('AI 新闻配置已保存');
+    }
+
+    async function sendTestDigest() {
+      const res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/ai-news/test-digest`);
+      if (res.status === 'no_news') {
+        showToast('昨天没有抓到新闻，早报没发');
+      } else if (res.status === 'send_failed') {
+        showToast('测试早报发送失败，稍后再试');
+      } else {
+        showToast(`测试早报已发到群（${res.items} 条新闻${res.fallback ? '，AI 摘要未就绪用的标题清单' : ''}）`);
+      }
     }
 
     // --- 6.5 紧急模式与权限 (Emergency) ---

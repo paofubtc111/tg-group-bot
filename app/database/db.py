@@ -547,6 +547,7 @@ _NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("ai_news_settings", "breaking_high_signal", "TEXT DEFAULT ''"),
     ("ai_news_settings", "breaking_models", "TEXT DEFAULT ''"),
     ("ai_news_settings", "breaking_events", "TEXT DEFAULT ''"),
+    ("ai_news_settings", "max_breaking_per_day", "INTEGER DEFAULT 3"),
 )
 
 
