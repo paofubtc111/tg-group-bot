@@ -517,3 +517,35 @@ CREATE TABLE IF NOT EXISTS group_misc_settings (
     auto_check_u BOOLEAN DEFAULT FALSE,          -- 自动查U (发送 TRC20 地址查询余额)
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
 );
+
+-- 44. AI 新闻文章表（RSS 去重，link 唯一）
+CREATE TABLE IF NOT EXISTS ai_news_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL UNIQUE,
+    published_at TEXT DEFAULT '',
+    fetched_at TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
+    sent_breaking INTEGER DEFAULT 0,
+    sent_digest INTEGER DEFAULT 0
+);
+
+-- 45. AI 新闻每群设置表（不挂 group_settings 外键：默认群可能尚未登记；
+--    没行的群 = 不发）
+CREATE TABLE IF NOT EXISTS ai_news_settings (
+    group_id INTEGER PRIMARY KEY,
+    daily_enabled INTEGER DEFAULT 0,
+    daily_time TEXT DEFAULT '09:00',
+    breaking_enabled INTEGER DEFAULT 0,
+    last_digest_date TEXT DEFAULT ''
+);
+
+-- 46. AI 新闻发送记录表（按群、按类计突发日限额）
+CREATE TABLE IF NOT EXISTS ai_news_sends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    group_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    sent_at TEXT DEFAULT ''
+);

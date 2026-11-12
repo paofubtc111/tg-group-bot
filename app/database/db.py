@@ -543,6 +543,7 @@ async def get_db() -> AsyncIterator[Any]:
 _NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("lockdown_keywords", "allow_admin_trigger", "INTEGER DEFAULT 0"),
     ("group_moderation_settings", "moderate_admins", "INTEGER DEFAULT 0"),
+    ("ai_news_items", "summary", "TEXT DEFAULT ''"),
 )
 
 
