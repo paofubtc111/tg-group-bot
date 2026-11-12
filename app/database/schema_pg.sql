@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS group_settings (
     group_id BIGINT PRIMARY KEY,
     group_title TEXT NOT NULL,
     is_active INTEGER DEFAULT 1,
+    added_by_user_id BIGINT,
+    added_by_username TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );

@@ -545,6 +545,8 @@ async def get_db() -> AsyncIterator[Any]:
 
 # 已存在表的新增列 (schema 已同步; 迁移只给旧库补列, 幂等)
 _NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("group_settings", "added_by_user_id", "BIGINT DEFAULT NULL"),
+    ("group_settings", "added_by_username", "TEXT DEFAULT NULL"),
     ("lockdown_keywords", "allow_admin_trigger", "INTEGER DEFAULT 0"),
     ("group_moderation_settings", "moderate_admins", "INTEGER DEFAULT 0"),
     ("ai_news_items", "summary", "TEXT DEFAULT ''"),

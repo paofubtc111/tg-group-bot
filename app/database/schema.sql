@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS group_settings (
     group_id INTEGER PRIMARY KEY,
     group_title TEXT NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
+    added_by_user_id BIGINT,
+    added_by_username TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

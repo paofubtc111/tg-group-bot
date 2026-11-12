@@ -80,17 +80,44 @@ class GroupTrackerMiddleware(BaseMiddleware):
 @tracker_router.my_chat_member()
 async def on_bot_member_updated(event: ChatMemberUpdated) -> None:
     """
-    当 Bot 被拉入群组、提升为管理员或移出群组时更新 group_settings.is_active
+    当 Bot 被拉入群组、提升为管理员或移出群组时更新 group_settings.is_active，
+    并在首次拉入 / 被踢后重新拉入时记下操作人（added_by_*）。
+    操作人取自 event.from_user（Telegram API 的 from 字段）；机器人自己
+    或无操作人时不记。已记过且 Bot 一直在群里时不再覆盖（例如仅提权为管理员）。
     """
     if event.chat.type not in ("group", "supergroup"):
         return
 
     new_status = event.new_chat_member.status
+    old_status = event.old_chat_member.status
     is_active = new_status in ("member", "administrator", "creator", "restricted")
-    await ensure_group_initialized(event.chat.id, event.chat.title or f"Group {event.chat.id}")
+    title = event.chat.title or f"Group {event.chat.id}"
+    await ensure_group_initialized(event.chat.id, title)
+
+    # 是否记操作人: Bot 被拉进来, 且原来没记过, 或之前是被踢/离开状态。
+    actor = event.from_user
+    record_inviter = False
+    if is_active and actor is not None and not actor.is_bot:
+        async with get_db() as db:
+            row = await db.fetchrow(
+                "SELECT is_active, added_by_user_id FROM group_settings WHERE group_id = ?",
+                (event.chat.id,),
+            )
+        record_inviter = bool(
+            row is None
+            or row.get("added_by_user_id") is None
+            or not row.get("is_active")
+            or old_status in ("left", "kicked")
+        )
 
     async with get_db() as db:
-        await db.execute(
-            "UPDATE group_settings SET is_active = ?, group_title = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
-            (1 if is_active else 0, event.chat.title or f"Group {event.chat.id}", event.chat.id),
-        )
+        if record_inviter:
+            await db.execute(
+                "UPDATE group_settings SET is_active = ?, group_title = ?, added_by_user_id = ?, added_by_username = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
+                (1 if is_active else 0, title, actor.id, actor.username, event.chat.id),
+            )
+        else:
+            await db.execute(
+                "UPDATE group_settings SET is_active = ?, group_title = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
+                (1 if is_active else 0, title, event.chat.id),
+            )

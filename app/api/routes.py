@@ -951,6 +951,42 @@ async def api_feed_import(payload: FeedImportPayload, request: Request) -> dict:
     return {"status": "ok", **result}
 
 
+@api_router.get("/api/admin/groups")
+async def api_admin_groups(request: Request) -> dict:
+    """小花群管后台群组同步专用只读接口（供后台定时/手动同步调用）。
+    鉴权：请求头 X-Admin-Token 须等于环境变量 ADMIN_SYNC_TOKEN。
+    不走 Telegram WebApp 签名；只读 group_settings 全表，不写库。
+    Token 不正确或未配置时分别返回 401 / 503，token 本身不记日志。"""
+    token = settings.ADMIN_SYNC_TOKEN
+    if not token:
+        raise HTTPException(status_code=503, detail="未配置 ADMIN_SYNC_TOKEN")
+    got = request.headers.get("X-Admin-Token", "")
+    if not got or got != token:
+        raise HTTPException(status_code=401, detail="token 不正确")
+    async with get_db() as db:
+        rows = await db.fetch(
+            "SELECT group_id, group_title, is_active, added_by_user_id, "
+            "added_by_username, created_at, updated_at FROM group_settings "
+            "ORDER BY group_id"
+        )
+    groups = []
+    for row in rows:
+        created_at = row.get("created_at")
+        updated_at = row.get("updated_at")
+        groups.append(
+            {
+                "group_id": row["group_id"],
+                "group_title": row["group_title"],
+                "is_active": bool(row["is_active"]),
+                "added_by_user_id": row.get("added_by_user_id"),
+                "added_by_username": row.get("added_by_username"),
+                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+                "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
+            }
+        )
+    return {"status": "ok", "groups": groups}
+
+
 # ==================== 7. 紧急模式与权限 / 操作日志 / 导入导出 ====================
 
 

@@ -24,6 +24,8 @@ class Settings:
     DEV_ADMIN_ID: int = int(os.getenv("DEV_ADMIN_ID", "10000001"))
     # Muse 动态导入接口的共享密钥（X-Feed-Import-Token）。为空时该接口不可用。
     FEED_IMPORT_TOKEN: str = os.getenv("FEED_IMPORT_TOKEN", "")
+    # 小花群管后台群组同步接口的共享密钥（X-Admin-Token）。为空时该接口不可用。
+    ADMIN_SYNC_TOKEN: str = os.getenv("ADMIN_SYNC_TOKEN", "")
 
 
 settings = Settings()
