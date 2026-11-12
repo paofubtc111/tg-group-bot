@@ -389,7 +389,11 @@ class AsyncDBSession:
     async def execute(self, query: str, params: tuple | list = ()) -> int:
         async with self.conn.execute(query, params) as cursor:
             await self.conn.commit()
-            return cursor.lastrowid or cursor.rowcount
+            # INSERT OR IGNORE 被去重挡住时，lastrowid 会残留上一次插入的 id，
+            # 必须先看 rowcount（0=没插入），否则 store_items 会把重复计成新入库。
+            if cursor.rowcount:
+                return cursor.lastrowid or cursor.rowcount
+            return 0
 
     async def executemany(self, query: str, seq_of_params: list[tuple | list]) -> None:
         await self.conn.executemany(query, seq_of_params)

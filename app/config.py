@@ -22,6 +22,8 @@ class Settings:
     OLLAMA_TIMEOUT_SECONDS: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "60.0"))
     DEV_MODE: bool = os.getenv("DEV_MODE", "false").lower() in ("1", "true", "yes")
     DEV_ADMIN_ID: int = int(os.getenv("DEV_ADMIN_ID", "10000001"))
+    # Muse 动态导入接口的共享密钥（X-Feed-Import-Token）。为空时该接口不可用。
+    FEED_IMPORT_TOKEN: str = os.getenv("FEED_IMPORT_TOKEN", "")
 
 
 settings = Settings()

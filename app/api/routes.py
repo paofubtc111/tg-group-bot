@@ -96,6 +96,11 @@ class LLMConfigPayload(BaseModel):
     context_limit: int = Field(default=6, ge=1, le=30)
 
 
+class FeedImportPayload(BaseModel):
+    """Muse 动态导入：一批单元，每条 {title, body_md, source, published_at, unit_id}。"""
+    units: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class AINewsConfigPayload(BaseModel):
     daily_enabled: bool = False
     daily_time: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -927,6 +932,23 @@ async def api_test_digest(
         f"手动发送测试早报: {result.get('status')}, {result.get('items', 0)} 条新闻",
     )
     return result
+
+
+@api_router.post("/api/ai-news/feed-import")
+async def api_feed_import(payload: FeedImportPayload, request: Request) -> dict:
+    """Muse 动态 → AI 新闻入库（供定时同步任务调用）。
+    鉴权：请求头 X-Feed-Import-Token 须等于环境变量 FEED_IMPORT_TOKEN。
+    不走 Telegram 签名，也不走群管理员校验；入库后走现有的突发/早报逻辑。"""
+    token = settings.FEED_IMPORT_TOKEN
+    if not token:
+        raise HTTPException(status_code=503, detail="未配置 FEED_IMPORT_TOKEN")
+    got = request.headers.get("X-Feed-Import-Token", "")
+    if not got or got != token:
+        raise HTTPException(status_code=401, detail="token 不正确")
+    from app.bot.handlers.ai_news import import_feed_units
+
+    result = await import_feed_units(payload.units)
+    return {"status": "ok", **result}
 
 
 # ==================== 7. 紧急模式与权限 / 操作日志 / 导入导出 ====================

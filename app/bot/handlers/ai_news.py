@@ -222,6 +222,50 @@ async def fetch_all_feeds() -> list:
     return out
 
 
+def _extract_first_link(body_md: str) -> str:
+    """从动态正文（Markdown）里取第一个原文链接。"""
+    m = re.search(r"https?://[^\s)\]]+", body_md or "")
+    return m.group(0).rstrip(".,") if m else ""
+
+
+def feed_unit_to_item(unit: dict) -> dict | None:
+    """Muse 动态单元 → ai_news_items 的一条。
+    unit: {title, body_md, source, published_at, unit_id}。
+    链接取正文第一个原文链接；没有链接时用单元 id 做去重键。"""
+    if not isinstance(unit, dict):
+        return None
+    title = (unit.get("title") or "").strip()
+    body_md = unit.get("body_md") or ""
+    if not title:
+        return None
+    link = _extract_first_link(body_md)
+    if not link:
+        uid = (unit.get("unit_id") or "").strip()
+        if not uid:
+            return None
+        link = "muse-feed://" + uid
+    # 摘要：把 [文字](链接) 还原成文字，再按 RSS 摘要同一套清洗（去标签、截断 300 字）
+    plain = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", body_md)
+    return {
+        "source": (unit.get("source") or "Muse动态").strip() or "Muse动态",
+        "title": title,
+        "link": link,
+        "published_at": (unit.get("published_at") or "").strip(),
+        "summary": _clean_summary(plain),
+    }
+
+
+async def import_feed_units(units: list) -> dict:
+    """导入一批动态单元（入库去重，link 唯一）。返回导入/重复/收到条数。"""
+    items = []
+    for u in units or []:
+        it = feed_unit_to_item(u)
+        if it:
+            items.append(it)
+    n = await store_items(items)
+    return {"imported": n, "duplicates": len(items) - n, "received": len(units or [])}
+
+
 async def store_items(items: list) -> int:
     """入库去重（link 唯一）。返回新入库条数。"""
     if not items:
