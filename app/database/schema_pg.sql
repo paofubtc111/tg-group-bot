@@ -544,7 +544,7 @@ CREATE TABLE IF NOT EXISTS ai_news_settings (
     breaking_high_signal TEXT DEFAULT '',
     breaking_models TEXT DEFAULT '',
     breaking_events TEXT DEFAULT '',
-    max_breaking_per_day INTEGER DEFAULT 3
+    max_breaking_per_day INTEGER DEFAULT 10
 );
 
 -- 46. AI 新闻发送记录表（按群、按类计突发日限额）

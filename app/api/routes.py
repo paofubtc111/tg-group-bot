@@ -110,7 +110,7 @@ class AINewsConfigPayload(BaseModel):
     breaking_models: str = ""
     breaking_events: str = ""
     # 每日突发上限（1-10，默认 3）
-    max_breaking_per_day: int = Field(default=3, ge=1, le=10)
+    max_breaking_per_day: int = Field(default=10, ge=1, le=30)
 
 
 class EmergencyConfigPayload(BaseModel):

@@ -86,7 +86,7 @@ AI_TERMS = [
     "基座模型", "开源模型", "agent",
 ]
 
-MAX_BREAKING_PER_DAY = 3
+MAX_BREAKING_PER_DAY = 10
 FETCH_INTERVAL_SECONDS = 1800
 LOOP_SLEEP_SECONDS = 300
 
@@ -298,6 +298,12 @@ async def ensure_default_settings() -> None:
             "VALUES (?, 1, ?, 1)",
             (DEFAULT_GROUP_ID, DEFAULT_DAILY_TIME),
         )
+        # 一次性迁移（2026-11-12 上限 3→10）：把还停留在旧默认 3 的行提到 10。
+        # pao 若之后在面板里主动设回 3，请删掉这两行，否则重启会再提到 10。
+        await db.execute(
+            "UPDATE ai_news_settings SET max_breaking_per_day = 10 "
+            "WHERE max_breaking_per_day = 3"
+        )
 
 
 async def get_enabled_groups(kind: str) -> list:
@@ -351,12 +357,17 @@ def _breaking_keywords(cfg: dict) -> tuple:
 
 
 def _max_breaking_per_day(cfg: dict) -> int:
-    """取某群的每日突发上限；没配或非法就用默认 3（限制 1-10）。"""
+    """取某群的每日突发上限；没配或非法就用默认 10（限制 1-30）。"""
     try:
         v = int((cfg or {}).get("max_breaking_per_day") or 0)
     except (TypeError, ValueError):
         v = 0
-    return v if 1 <= v <= 10 else MAX_BREAKING_PER_DAY
+    return v if 1 <= v <= 30 else MAX_BREAKING_PER_DAY
+
+
+def _is_feed_item(item: dict) -> bool:
+    """是否来自 Muse 动态：动态已按 pao 的兴趣筛过，直通突发，不走关键词/AI 门。"""
+    return (item.get("source", "") or "").startswith("Muse")
 
 
 def _is_ai_related(title: str, ai_terms=None) -> bool:
@@ -397,7 +408,8 @@ async def check_breaking_news(bot: Bot) -> None:
         high, models, events = _breaking_keywords(cfg)
         items = [
             it for it in fresh
-            if _is_breaking(it.get("title", ""), high, models, events)
+            if _is_feed_item(it)
+            or _is_breaking(it.get("title", ""), high, models, events)
         ]
         group_breaking[cfg["group_id"]] = items
         if items:

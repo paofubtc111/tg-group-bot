@@ -215,16 +215,31 @@ async def test_breaking_flow():
     # 再跑一次，不应重复发
     await ai_news.check_breaking_news(bot)
     ok &= check("第二次不重复发突发", len(bot.sent) == 1)
-    # 日限额：已发 1 条，再插 3 条突发，最多再发 2 条（每天上限 3）
+    # 日限额：已发 1 条，再插 12 条突发，最多再发 9 条（每天上限 10）
     async with get_db() as db:
-        for i in range(3):
+        for i in range(12):
             await db.execute(
                 "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
                 "VALUES (?, ?, ?, ?, ?)",
                 ("Test", f"Claude 新模型发布 {i}", f"https://example.com/break{i+2}", now, now),
             )
     await ai_news.check_breaking_news(bot)
-    ok &= check("日限额：全天最多 3 条突发", len(bot.sent) == 3)
+    ok &= check("日限额：全天最多 10 条突发", len(bot.sent) == 10)
+    # 动态直通：来源 Muse动态 的条目不走关键词/AI 门，标题再普通也发
+    async with get_db() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("Muse动态", "今天群里聊点别的", "https://example.com/feed1", now, now),
+        )
+    # 先把上限调高到 30，避免被日限额挡住
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE ai_news_settings SET max_breaking_per_day = 30 WHERE group_id = ?",
+            (GROUP,),
+        )
+    await ai_news.check_breaking_news(bot)
+    ok &= check("动态直通突发：无关键词也发", len(bot.sent) == 11 and "今天群里聊点别的" in bot.sent[-1]["text"])
     return ok
 
 
