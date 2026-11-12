@@ -68,6 +68,24 @@ BREAKING_EVENTS = [
     "新模型", "新一代", "推理模型", "多模态",
 ]
 
+# AI 相关性词：第一档高信号词必须同时命中其中之一才算突发。
+# 否则 36氪这类综合源的非 AI 商业新闻（京东收购零售、华尔街监管、股票退市）
+# 只要带“收购/监管/上市”就会误发。
+AI_TERMS = [
+    # 模型与 AI 产品/公司
+    "gpt", "claude", "gemini", "grok", "llama", "qwen", "deepseek",
+    "mistral", "kimi", "glm", "doubao", "豆包", "openai", "anthropic",
+    "chatgpt", "llm", "aigc", "ai",
+    # AI 概念
+    "人工智能", "大模型", "模型", "机器学习", "深度学习", "神经网络",
+    "算力", "gpu", "生成式", "多模态", "智能体", "大语言模型",
+    # AI 芯片与大厂
+    "英伟达", "nvidia", "芯片", "算法",
+    # 模型发布与 API（覆盖动态里那种：开源权重、机器人模型、OpenRouter 价格）
+    "权重", "机器人", "具身智能", "openrouter", "api", "推理", "token",
+    "基座模型", "开源模型", "agent",
+]
+
 MAX_BREAKING_PER_DAY = 3
 FETCH_INTERVAL_SECONDS = 1800
 LOOP_SLEEP_SECONDS = 300
@@ -297,10 +315,21 @@ def _max_breaking_per_day(cfg: dict) -> int:
     return v if 1 <= v <= 10 else MAX_BREAKING_PER_DAY
 
 
-def _is_breaking(title: str, high=None, models=None, events=None) -> bool:
+def _is_ai_related(title: str, ai_terms=None) -> bool:
+    """标题是否和 AI 相关（模型名、AI 概念、AI 公司/芯片）。"""
     lowered = title.lower()
+    return any(kw.lower() in lowered for kw in (ai_terms or AI_TERMS))
+
+
+def _is_breaking(title: str, high=None, models=None, events=None, ai_terms=None) -> bool:
+    lowered = title.lower()
+    # 第一档：高信号词 + 必须和 AI 相关（防综合源的非 AI 商业新闻误发）
     if any(kw.lower() in lowered for kw in (high or BREAKING_HIGH_SIGNAL)):
-        return True
+        # AI 相关 = AI 词表，或（自定义/默认的）模型名
+        if _is_ai_related(title, ai_terms):
+            return True
+        model_list = models or BREAKING_MODELS
+        return any(kw.lower() in lowered for kw in model_list)
     has_model = any(kw.lower() in lowered for kw in (models or BREAKING_MODELS))
     has_event = any(kw.lower() in lowered for kw in (events or BREAKING_EVENTS))
     return has_model and has_event
