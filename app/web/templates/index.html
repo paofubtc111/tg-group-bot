@@ -618,6 +618,28 @@
           <input id="ainews-breaking-enabled" type="checkbox" class="w-4 h-4 accent-violet-500 rounded" />
         </label>
 
+        <div class="p-3 rounded-xl bg-black/25 border border-white/10 space-y-3">
+          <div>
+            <div class="text-xs font-semibold text-slate-200">突发快讯关键词</div>
+            <div class="text-[11px] text-slate-400">多个词用逗号分隔（中文逗号也行）；留空 = 用括号里的默认词</div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">高信号词（标题命中任一即发）</label>
+            <input id="ainews-kw-high" type="text" placeholder="收购, 并购, acquisition, 融资, funding, ipo, 上市, 起诉, lawsuit, 禁令, ban, 监管, regulation, 泄露, leak, 宕机, outage, 安全漏洞, 开源, open source" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">模型名（须配事件词才发）</label>
+            <input id="ainews-kw-models" type="text" placeholder="gpt-5, gpt-4, gpt-4o, gpt-4.5, claude, gemini, grok, llama, qwen, deepseek, mistral, kimi, glm, doubao, 豆包" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-200">事件词（须配模型名才发）</label>
+            <input id="ainews-kw-events" type="text" placeholder="发布, 推出, 上线, release, launch, 新模型, 新一代, 推理模型, 多模态" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
+          </div>
+        </div>
+
         <div class="flex items-center justify-between pt-2 border-t border-white/10">
           <span class="text-xs text-slate-400">RSS 源：TechCrunch AI、The Verge AI、Hugging Face、Google AI Blog、MIT Tech Review、36氪、VentureBeat · 已入库文章：<strong id="ainews-items-count" class="text-violet-300">0</strong> 条</span>
         </div>
@@ -1726,8 +1748,8 @@
         }
       },
       aiNews: {
-        '-1001889002': { group_id: -1001889002, daily_enabled: true, daily_time: '09:00', breaking_enabled: true, last_digest_date: '2026-11-11' },
-        '-1001889003': { group_id: -1001889003, daily_enabled: false, daily_time: '09:00', breaking_enabled: false, last_digest_date: '' }
+        '-1001889002': { group_id: -1001889002, daily_enabled: true, daily_time: '09:00', breaking_enabled: true, last_digest_date: '2026-11-11', breaking_high_signal: '', breaking_models: '', breaking_events: '' },
+        '-1001889003': { group_id: -1001889003, daily_enabled: false, daily_time: '09:00', breaking_enabled: false, last_digest_date: '', breaking_high_signal: '', breaking_models: '', breaking_events: '' }
       },
       emergency: {
         '-1001889002': { group_id: -1001889002, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: true },
@@ -2392,7 +2414,7 @@
     // ==================== 4. 视图路由与中枢卡片渲染 ====================
     function navigateToView(viewId) {
       appState.currentView = viewId;
-      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons'];
+      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'ai-news', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons'];
       allViews.forEach(v => {
         const sec = document.getElementById(`view-${v}`);
         if (sec) sec.classList.toggle('hidden', v !== viewId);
@@ -3101,6 +3123,9 @@
       document.getElementById('ainews-daily-enabled').checked = !!a.daily_enabled;
       document.getElementById('ainews-daily-time').value = a.daily_time || '09:00';
       document.getElementById('ainews-breaking-enabled').checked = !!a.breaking_enabled;
+      document.getElementById('ainews-kw-high').value = a.breaking_high_signal || '';
+      document.getElementById('ainews-kw-models').value = a.breaking_models || '';
+      document.getElementById('ainews-kw-events').value = a.breaking_events || '';
       document.getElementById('ainews-last-digest').textContent = a.last_digest_date || '—';
       document.getElementById('ainews-items-count').textContent = String(a.items_count ?? 0);
     }
@@ -3109,7 +3134,10 @@
       const payload = {
         daily_enabled: document.getElementById('ainews-daily-enabled').checked,
         daily_time: document.getElementById('ainews-daily-time').value || '09:00',
-        breaking_enabled: document.getElementById('ainews-breaking-enabled').checked
+        breaking_enabled: document.getElementById('ainews-breaking-enabled').checked,
+        breaking_high_signal: document.getElementById('ainews-kw-high').value.trim(),
+        breaking_models: document.getElementById('ainews-kw-models').value.trim(),
+        breaking_events: document.getElementById('ainews-kw-events').value.trim()
       };
       await apiRequest('POST', `/api/group/${appState.activeGroupId}/ai-news`, payload);
       await refreshAllGroupData();

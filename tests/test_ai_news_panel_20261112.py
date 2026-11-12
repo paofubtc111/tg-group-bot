@@ -83,7 +83,31 @@ def main():
     ok &= check("改回后早报关", data["ai_news"]["daily_enabled"] in (0, False))
     ok &= check("改回后时间 10:00", data["ai_news"]["daily_time"] == "10:00")
 
-    # 6. 非法时间格式被拒（422）
+    # 6. 关键词：保存自定义词，读回一致；留空 = 默认
+    r = client.post(
+        f"/api/group/{GROUP}/ai-news",
+        json={
+            "daily_enabled": True, "daily_time": "09:00", "breaking_enabled": True,
+            "breaking_high_signal": "收购, 并购, 融资",
+            "breaking_models": "gpt-5, claude, qwen",
+            "breaking_events": "发布, 上线",
+        },
+    )
+    ok &= check("POST 关键词 200", r.status_code == 200)
+    r = client.get(f"/api/group/{GROUP}/ai-news")
+    data = r.json()
+    ok &= check("读回高信号词", data["ai_news"]["breaking_high_signal"] == "收购, 并购, 融资")
+    ok &= check("读回模型名", data["ai_news"]["breaking_models"] == "gpt-5, claude, qwen")
+    ok &= check("读回事件词", data["ai_news"]["breaking_events"] == "发布, 上线")
+
+    # 7. 面板含关键词输入框
+    r = client.get("/")
+    ok &= check("面板含高信号词输入框", 'id="ainews-kw-high"' in r.text)
+    ok &= check("面板含模型名输入框", 'id="ainews-kw-models"' in r.text)
+    ok &= check("面板含事件词输入框", 'id="ainews-kw-events"' in r.text)
+    ok &= check("面板 allViews 含 ai-news", "'ai-news'" in r.text)
+
+    # 8. 非法时间格式被拒（422）
     r = client.post(
         f"/api/group/{GROUP}/ai-news",
         json={"daily_enabled": True, "daily_time": "25:99", "breaking_enabled": False},

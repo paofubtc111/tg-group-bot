@@ -260,12 +260,40 @@ async def get_group_llm(group_id: int) -> tuple:
     return settings.OLLAMA_BASE_URL, "qwen2.5:7b"
 
 
-def _is_breaking(title: str) -> bool:
+def _parse_keywords(text: str) -> list:
+    """逗号分隔的关键词串 → 去重后的词列表。支持英文逗号、中文逗号、顿号。"""
+    if not text:
+        return []
+    parts = text.replace("，", ",").replace("、", ",").split(",")
+    seen = set()
+    out = []
+    for part in parts:
+        kw = part.strip()
+        if kw and kw.lower() not in seen:
+            seen.add(kw.lower())
+            out.append(kw)
+    return out
+
+
+def _breaking_keywords(cfg: dict) -> tuple:
+    """取某群的突发关键词三档；没配（空串）就用模块默认值。"""
+    cfg = cfg or {}
+    high = _parse_keywords(cfg.get("breaking_high_signal") or "")
+    models = _parse_keywords(cfg.get("breaking_models") or "")
+    events = _parse_keywords(cfg.get("breaking_events") or "")
+    return (
+        high or BREAKING_HIGH_SIGNAL,
+        models or BREAKING_MODELS,
+        events or BREAKING_EVENTS,
+    )
+
+
+def _is_breaking(title: str, high=None, models=None, events=None) -> bool:
     lowered = title.lower()
-    if any(kw.lower() in lowered for kw in BREAKING_HIGH_SIGNAL):
+    if any(kw.lower() in lowered for kw in (high or BREAKING_HIGH_SIGNAL)):
         return True
-    has_model = any(kw.lower() in lowered for kw in BREAKING_MODELS)
-    has_event = any(kw.lower() in lowered for kw in BREAKING_EVENTS)
+    has_model = any(kw.lower() in lowered for kw in (models or BREAKING_MODELS))
+    has_event = any(kw.lower() in lowered for kw in (events or BREAKING_EVENTS))
     return has_model and has_event
 
 
@@ -280,8 +308,19 @@ async def check_breaking_news(bot: Bot) -> None:
         )
     if not fresh:
         return
-    breaking = [it for it in fresh if _is_breaking(it.get("title", ""))]
-    if not breaking:
+    # 每群用自己的关键词算突发（没配就用默认词）
+    group_breaking = {}
+    any_breaking = False
+    for cfg in groups:
+        high, models, events = _breaking_keywords(cfg)
+        items = [
+            it for it in fresh
+            if _is_breaking(it.get("title", ""), high, models, events)
+        ]
+        group_breaking[cfg["group_id"]] = items
+        if items:
+            any_breaking = True
+    if not any_breaking:
         async with get_db() as db:
             for it in fresh:
                 await db.execute(
@@ -292,6 +331,9 @@ async def check_breaking_news(bot: Bot) -> None:
     now_iso = datetime.now(CST).isoformat(timespec="seconds")
     for cfg in groups:
         group_id = cfg["group_id"]
+        breaking = group_breaking.get(group_id) or []
+        if not breaking:
+            continue
         async with get_db() as db:
             sent_today = await db.fetchrow(
                 "SELECT COUNT(*) AS c FROM ai_news_sends "

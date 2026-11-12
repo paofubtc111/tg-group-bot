@@ -540,7 +540,10 @@ CREATE TABLE IF NOT EXISTS ai_news_settings (
     daily_enabled INTEGER DEFAULT 0,
     daily_time TEXT DEFAULT '09:00',
     breaking_enabled INTEGER DEFAULT 0,
-    last_digest_date TEXT DEFAULT ''
+    last_digest_date TEXT DEFAULT '',
+    breaking_high_signal TEXT DEFAULT '',
+    breaking_models TEXT DEFAULT '',
+    breaking_events TEXT DEFAULT ''
 );
 
 -- 46. AI 新闻发送记录表（按群、按类计突发日限额）

@@ -100,6 +100,10 @@ class AINewsConfigPayload(BaseModel):
     daily_enabled: bool = False
     daily_time: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     breaking_enabled: bool = False
+    # 突发关键词三档（逗号分隔；空串 = 用默认词）
+    breaking_high_signal: str = ""
+    breaking_models: str = ""
+    breaking_events: str = ""
 
 
 class EmergencyConfigPayload(BaseModel):
@@ -864,16 +868,24 @@ async def api_save_ai_news(
     async with get_db() as db:
         await db.execute(
             "INSERT OR IGNORE INTO ai_news_settings "
-            "(group_id, daily_enabled, daily_time, breaking_enabled) "
-            "VALUES (?, ?, ?, ?)",
+            "(group_id, daily_enabled, daily_time, breaking_enabled, "
+            "breaking_high_signal, breaking_models, breaking_events) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (group_id, int(payload.daily_enabled), payload.daily_time.strip(),
-             int(payload.breaking_enabled)),
+             int(payload.breaking_enabled),
+             payload.breaking_high_signal.strip(),
+             payload.breaking_models.strip(),
+             payload.breaking_events.strip()),
         )
         await db.execute(
             "UPDATE ai_news_settings SET daily_enabled = ?, daily_time = ?, "
-            "breaking_enabled = ? WHERE group_id = ?",
+            "breaking_enabled = ?, breaking_high_signal = ?, "
+            "breaking_models = ?, breaking_events = ? WHERE group_id = ?",
             (int(payload.daily_enabled), payload.daily_time.strip(),
-             int(payload.breaking_enabled), group_id),
+             int(payload.breaking_enabled),
+             payload.breaking_high_signal.strip(),
+             payload.breaking_models.strip(),
+             payload.breaking_events.strip(), group_id),
         )
         row = await db.fetchrow(
             "SELECT * FROM ai_news_settings WHERE group_id = ?", (group_id,)
