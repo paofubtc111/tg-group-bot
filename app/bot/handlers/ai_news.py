@@ -449,7 +449,7 @@ async def check_breaking_news(bot: Bot) -> None:
                 f"<a href=\"{link}\">原文</a>"
             )
             try:
-                await bot.send_message(chat_id=group_id, text=text)
+                await bot.send_message(chat_id=group_id, text=text, disable_web_page_preview=True)
                 logger.info("突发快讯已发 (group=%s, link=%s)", group_id, it.get("link", ""))
                 async with get_db() as db:
                     await db.execute(
@@ -510,7 +510,7 @@ async def send_daily_digest(bot: Bot) -> None:
             digest = build_fallback_digest(date_label, items)
             logger.warning("早报 LLM 摘要失败 (group=%s)，已降级为标题清单", group_id)
         try:
-            await bot.send_message(chat_id=group_id, text=digest)
+            await bot.send_message(chat_id=group_id, text=digest, disable_web_page_preview=True)
             logger.info("每日早报已发 (group=%s, %s 条新闻)", group_id, len(items))
         except Exception as exc:
             logger.warning("每日早报发送失败 (group=%s): %s", group_id, exc)
@@ -559,7 +559,7 @@ async def send_test_digest(bot: Bot, group_id: int) -> dict:
         used_fallback = True
         logger.warning("测试早报 LLM 摘要失败 (group=%s)，已降级为标题清单", group_id)
     try:
-        await bot.send_message(chat_id=group_id, text=digest)
+        await bot.send_message(chat_id=group_id, text=digest, disable_web_page_preview=True)
         logger.info("测试早报已发 (group=%s, %s 条新闻)", group_id, len(items))
     except Exception as exc:
         logger.warning("测试早报发送失败 (group=%s): %s", group_id, exc)

@@ -32,7 +32,7 @@ class FakeBot:
         self.sent = []
 
     async def send_message(self, chat_id, text, **kwargs):
-        self.sent.append({"chat_id": chat_id, "text": text})
+        self.sent.append({"chat_id": chat_id, "text": text, **kwargs})
         return None
 
 
@@ -212,6 +212,7 @@ async def test_breaking_flow():
     ok &= check("突发只发了 1 条（GPT-5）", len(bot.sent) == 1)
     ok &= check("突发内容含标题", bot.sent and "GPT-5" in bot.sent[0]["text"])
     ok &= check("突发内容含原文链接", bot.sent and "https://example.com/break1" in bot.sent[0]["text"])
+    ok &= check("突发不带链接预览", bot.sent and bot.sent[0].get("disable_web_page_preview") is True)
     # 再跑一次，不应重复发
     await ai_news.check_breaking_news(bot)
     ok &= check("第二次不重复发突发", len(bot.sent) == 1)
@@ -264,6 +265,7 @@ async def test_digest_fallback():
     await ai_news.send_daily_digest(bot)
     ok = True
     ok &= check("早报发了 1 条", len(bot.sent) == 1)
+    ok &= check("早报不带链接预览", bot.sent and bot.sent[0].get("disable_web_page_preview") is True)
     ok &= check("Ollama 不通时降级为标题清单", bot.sent and "暂未就绪" in bot.sent[0]["text"])
     ok &= check("降级清单含标题", bot.sent and "Yesterday big AI news" in bot.sent[0]["text"])
     # 再跑一次，今天已发过，不重复
