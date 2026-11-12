@@ -96,6 +96,12 @@ class LLMConfigPayload(BaseModel):
     context_limit: int = Field(default=6, ge=1, le=30)
 
 
+class AINewsConfigPayload(BaseModel):
+    daily_enabled: bool = False
+    daily_time: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    breaking_enabled: bool = False
+
+
 class EmergencyConfigPayload(BaseModel):
     lockdown_mode: bool = False
     raid_protection: bool = False
@@ -819,6 +825,68 @@ async def api_clear_llm_history(
         "清空本群 AI 历史对话上下文记忆",
     )
     return {"status": "ok"}
+
+
+@api_router.get("/api/group/{group_id}/ai-news")
+async def api_get_ai_news(
+    group_id: int, request: Request, user: dict = Depends(get_current_user)
+) -> dict:
+    await require_group_admin(request, group_id, user)
+    await ensure_group_initialized(group_id)
+
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT * FROM ai_news_settings WHERE group_id = ?", (group_id,)
+        )
+        count = await db.fetchrow(
+            "SELECT COUNT(*) AS cnt FROM ai_news_items"
+        )
+    settings = dict(row) if row else {
+        "group_id": group_id,
+        "daily_enabled": 0,
+        "daily_time": "09:00",
+        "breaking_enabled": 0,
+        "last_digest_date": "",
+    }
+    return {"ai_news": settings, "news_items_count": count["cnt"] if count else 0}
+
+
+@api_router.post("/api/group/{group_id}/ai-news")
+async def api_save_ai_news(
+    group_id: int,
+    payload: AINewsConfigPayload,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    await require_group_admin(request, group_id, user)
+    await ensure_group_initialized(group_id)
+
+    async with get_db() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_settings "
+            "(group_id, daily_enabled, daily_time, breaking_enabled) "
+            "VALUES (?, ?, ?, ?)",
+            (group_id, int(payload.daily_enabled), payload.daily_time.strip(),
+             int(payload.breaking_enabled)),
+        )
+        await db.execute(
+            "UPDATE ai_news_settings SET daily_enabled = ?, daily_time = ?, "
+            "breaking_enabled = ? WHERE group_id = ?",
+            (int(payload.daily_enabled), payload.daily_time.strip(),
+             int(payload.breaking_enabled), group_id),
+        )
+        row = await db.fetchrow(
+            "SELECT * FROM ai_news_settings WHERE group_id = ?", (group_id,)
+        )
+
+    await record_audit_log(
+        group_id,
+        int(user["id"]),
+        user.get("first_name") or "Admin",
+        "update_ai_news",
+        f"更新 AI 新闻配置: 早报={payload.daily_enabled} {payload.daily_time}, 突发={payload.breaking_enabled}",
+    )
+    return {"status": "ok", "ai_news": row}
 
 
 # ==================== 7. 紧急模式与权限 / 操作日志 / 导入导出 ====================
