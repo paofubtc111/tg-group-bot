@@ -86,24 +86,25 @@ LOOP_SLEEP_SECONDS = 300
 
 DIGEST_SYSTEM_PROMPT = """你是一名 AI 科技新闻编辑，负责把 AI 新闻整理成中文群聊早报，直接发到 Telegram 群里。
 
-输出格式（固定照抄，不要自创格式）：
+【输出格式】
 - 开头一行：📰 昨日 AI 大事件（{date}）
 - 然后是最重要的 3-5 条新闻，每条格式固定为：
-<b>标题（中文，不超过 20 字）</b>
-1-2 句话讲清楚发生了什么、为什么重要。
-<a href="把新闻列表里那条的链接原样复制到这里">原文</a>
+  <b>标题（中文，不超过 20 字，模型/产品名保留英文原名，如 GPT-5、Gemini、Qwen）</b>
+  1-2 句话讲清楚发生了什么、为什么重要。
+  <a href="原文链接">原文</a>
 - 条与条之间空一行。
 - 全文不超过 800 字。
 
-规则（必须全部遵守）：
+【硬性规则】
 1. 只使用下面“新闻列表”里的内容，不编造、不补充列表之外的消息；不确定的内容不要写。
-2. 每条新闻的 1-2 句话必须根据它自己的“摘要”来写；如果某条写着“摘要：无”（如 Hugging Face 只有标题），只按标题写一句话，不要展开、不要编细节。
-3. 英文标题和摘要翻译成准确、自然的中文，不要生硬直译；已经是中文的标题直接用，不要改写。
-4. 按重要性排序，只保留最重要的 3-5 条，次要的直接丢掉。
-5. 链接必须原样复制列表里给的原文链接，一个字都不能改、不能编；不要把“原文链接”四个字放进 href 里。
-6. 只用上面规定的 HTML 标签（<b>、<a href="">），不要用 Markdown（**、[]()），不要用其他标签。
-7. 输出直接就是早报正文，不要加“好的”“以下是”等客套话，不要解释你的工作过程。
-8. 日期就是标题里那个昨天日期，不要写成今天或明天。"""
+2. 同一事件多家报道合并成一条，不要重复列。
+3. 按重要性排序，只保留最重要的 3-5 条：优先新模型发布、产品上线、开源、技术突破、重大融资/并购、政策监管；名人私生活、八卦类新闻，除非导致 CEO 下台、公司重大变动，否则不列入。
+4. 每条新闻的 1-2 句话必须根据它自己的“摘要”来写；如果某条写着“摘要：无”（如 Hugging Face 只有标题），只按标题写一句话，不要展开、不要编细节。
+5. 英文标题和摘要翻译成准确、自然的中文，不要生硬直译；已经是中文的标题直接用，不要改写；模型、产品、公司名保留英文原名。
+6. 链接必须原样复制列表里给的原文链接，一个字都不能改、不能编；不要把“原文链接”四个字放进 href 里。
+7. 只用上面规定的 HTML 标签（<b>、<a href="">），不要用 Markdown（**、[]()），不要用其他标签。
+8. 输出直接就是早报正文，不要加“好的”“以下是”等客套话，不要解释你的工作过程。
+9. 日期就是标题里那个昨天日期，不要写成今天或明天。"""
 
 
 def _clean_summary(raw: str, limit: int = 300) -> str:
@@ -157,10 +158,10 @@ def build_fallback_digest(date_str: str, items: list) -> str:
     """Ollama 不通时的降级早报：标题+来源+链接清单，不走 LLM。"""
     lines = [f"📰 <b>昨日 AI 大事件（{date_str}）</b>", ""]
     for it in items[:8]:
-        lines.append(
-            f"• <a href=\"{it.get('link', '')}\">{it.get('title', '')}</a>"
-            f"（{it.get('source', '')}）"
-        )
+        title = html.escape(it.get("title", ""), quote=True)
+        link = html.escape(it.get("link", ""), quote=True)
+        source = html.escape(it.get("source", ""), quote=True)
+        lines.append(f"• <a href=\"{link}\">{title}</a>（{source}）")
     lines.append("")
     lines.append("（AI 摘要服务暂未就绪，先发标题清单。）")
     return "\n".join(lines)
@@ -302,11 +303,14 @@ async def check_breaking_news(bot: Bot) -> None:
         if budget <= 0:
             continue
         for it in breaking[:budget]:
+            title = html.escape(it.get("title", ""), quote=True)
+            link = html.escape(it.get("link", ""), quote=True)
+            source = html.escape(it.get("source", ""), quote=True)
             text = (
                 f"🚨 <b>AI 快讯</b>\n\n"
-                f"<b>{it.get('title', '')}</b>\n"
-                f"来源：{it.get('source', '')}\n"
-                f"<a href=\"{it.get('link', '')}\">原文</a>"
+                f"<b>{title}</b>\n"
+                f"来源：{source}\n"
+                f"<a href=\"{link}\">原文</a>"
             )
             try:
                 await bot.send_message(chat_id=group_id, text=text)
@@ -357,7 +361,7 @@ async def send_daily_digest(bot: Bot) -> None:
             continue
         date_label = f"{yesterday.month}月{yesterday.day}日"
         base_url, model_name = await get_group_llm(group_id)
-        system_prompt = DIGEST_SYSTEM_PROMPT.format(date=date_label)
+        system_prompt = DIGEST_SYSTEM_PROMPT.replace("{date}", date_label)
         user_prompt = build_digest_user_prompt(date_label, items)
         digest = await query_ollama_chat(
             base_url=base_url,

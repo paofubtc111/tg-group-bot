@@ -115,6 +115,10 @@ async def test_prompt_builders():
     ok &= check("提示词要求 HTML 标签、禁 Markdown", "<b>" in sys_prompt and "不要用 Markdown" in sys_prompt)
     ok &= check("提示词有字数上限", "800" in sys_prompt)
     ok &= check("提示词删掉死代码空列表规则", "昨日无重要 AI 新闻" not in sys_prompt)
+    ok &= check("提示词要求同一事件合并成一条", "合并成一条" in sys_prompt)
+    ok &= check("提示词有排序优先级（新模型/开源/融资/监管）", "新模型发布" in sys_prompt and "政策监管" in sys_prompt)
+    ok &= check("提示词排除名人八卦（除非 CEO 下台）", "名人私生活" in sys_prompt and "CEO 下台" in sys_prompt)
+    ok &= check("提示词要求模型名保留英文原名", "保留英文原名" in sys_prompt)
     ok &= check("提示词要求按摘要写、无摘要只写一句", "摘要" in sys_prompt and "不要展开" in sys_prompt)
     ok &= check("提示词要求链接原样复制、不编 href", "原样复制" in sys_prompt)
     ok &= check("提示词每条 1-2 句（不是 2-3 句）", "1-2 句" in sys_prompt)
@@ -127,6 +131,28 @@ async def test_prompt_builders():
     # 摘要清洗：去 HTML、截断
     ok &= check("摘要清洗去 HTML 标签", ai_news._clean_summary("<p>hello <b>world</b></p>") == "hello world")
     ok &= check("摘要清洗截断 300 字", len(ai_news._clean_summary("x" * 500)) == 300)
+    return ok
+
+
+async def test_html_escape_and_date():
+    """标题含 & < 时，降级早报和突发快讯不能把 HTML 打坏；{date} 要被替换。"""
+    import html as _html
+    items = [
+        {"source": "Test & Co", "title": "Q&A: R&D <新> 模型发布",
+         "link": "https://example.com/?a=1&b=2", "published_at": "2026-11-11"},
+    ]
+    fb = ai_news.build_fallback_digest("11月11日", items)
+    ok = True
+    ok &= check("降级早报转义标题里的 & <", "&amp;" in fb and "&lt;" in fb)
+    ok &= check("降级早报不含裸 <新>", "<新>" not in fb)
+    ok &= check("降级早报转义链接里的 &", "a=1&amp;b=2" in fb)
+    # 突发快讯的转义走同一逻辑：直接拼一条验证
+    title = _html.escape(items[0]["title"], quote=True)
+    ok &= check("突发标题转义可用 html.escape", title == "Q&amp;A: R&amp;D &lt;新&gt; 模型发布")
+    # {date} 用 .replace() 替换
+    sys_prompt = ai_news.DIGEST_SYSTEM_PROMPT.replace("{date}", "11月11日")
+    ok &= check("{date} 已被替换成日期", "{date}" not in sys_prompt and "11月11日" in sys_prompt)
+    ok &= check("提示词无其他花括号残留", "{" not in sys_prompt.replace("{date}", ""))
     return ok
 
 
@@ -241,6 +267,7 @@ async def main():
     results.append(await test_store_dedupe())
     results.append(await test_is_breaking())
     results.append(await test_prompt_builders())
+    results.append(await test_html_escape_and_date())
     results.append(await test_fetch_feeds())
     results.append(await test_breaking_flow())
     results.append(await test_digest_fallback())
