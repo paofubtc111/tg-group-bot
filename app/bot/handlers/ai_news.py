@@ -90,7 +90,7 @@ AI_TERMS = [
     "基座模型", "开源模型", "agent",
 ]
 
-MAX_BREAKING_PER_DAY = 10
+MAX_BREAKING_PER_DAY = 50
 FETCH_INTERVAL_SECONDS = 1800
 LOOP_SLEEP_SECONDS = 300
 
@@ -302,11 +302,11 @@ async def ensure_default_settings() -> None:
             "VALUES (?, 1, ?, 1)",
             (DEFAULT_GROUP_ID, DEFAULT_DAILY_TIME),
         )
-        # 一次性迁移（2026-11-12 上限 3→10）：把还停留在旧默认 3 的行提到 10。
-        # pao 若之后在面板里主动设回 3，请删掉这两行，否则重启会再提到 10。
+        # 一次性迁移（2026-11-13 上限提到 50）：把还停留在旧默认 3/10 的行提到 50。
+        # pao 若之后在面板里主动设回 3 或 10，请删掉这两行，否则重启会再提到 50。
         await db.execute(
-            "UPDATE ai_news_settings SET max_breaking_per_day = 10 "
-            "WHERE max_breaking_per_day = 3"
+            "UPDATE ai_news_settings SET max_breaking_per_day = 50 "
+            "WHERE max_breaking_per_day IN (3, 10)"
         )
 
 
@@ -361,12 +361,12 @@ def _breaking_keywords(cfg: dict) -> tuple:
 
 
 def _max_breaking_per_day(cfg: dict) -> int:
-    """取某群的每日突发上限；没配或非法就用默认 10（限制 1-30）。"""
+    """取某群的每日突发上限；没配或非法就用默认 50（限制 1-50）。"""
     try:
         v = int((cfg or {}).get("max_breaking_per_day") or 0)
     except (TypeError, ValueError):
         v = 0
-    return v if 1 <= v <= 30 else MAX_BREAKING_PER_DAY
+    return v if 1 <= v <= 50 else MAX_BREAKING_PER_DAY
 
 
 def _is_feed_item(item: dict) -> bool:
@@ -439,22 +439,31 @@ async def check_breaking_news(bot: Bot) -> None:
         if not breaking:
             continue
         async with get_db() as db:
+            # 每日上限只算 RSS 突发：动态不计入（pao 2026-11-13），
+            # 所以这里按来源排除 Muse动态 的发送记录。
             sent_today = await db.fetchrow(
-                "SELECT COUNT(*) AS c FROM ai_news_sends "
-                "WHERE group_id = ? AND kind = 'breaking' AND substr(sent_at, 1, 10) = ?",
+                "SELECT COUNT(*) AS c FROM ai_news_sends s "
+                "LEFT JOIN ai_news_items i ON s.item_id = i.id "
+                "WHERE s.group_id = ? AND s.kind = 'breaking' "
+                "AND substr(s.sent_at, 1, 10) = ? "
+                "AND (i.source IS NULL OR i.source NOT LIKE 'Muse%')",
                 (group_id, today),
             )
         already = int((sent_today or {}).get("c") or 0)
-        budget = _max_breaking_per_day(cfg) - already
-        if budget <= 0:
-            continue
+        # 每日上限只约束 RSS 突发；动态不计入、不占名额，只受每轮 2 条的限流。
+        rss_budget = _max_breaking_per_day(cfg) - already
         feed_sent_this_cycle = 0
-        for it in breaking[:budget]:
-            # 动态快讯每轮限流：超过 2 条的留到下一轮，不丢。
+        rss_sent_this_cycle = 0
+        for it in breaking:
             if _is_feed_item(it):
+                # 动态快讯每轮限流：超过 2 条的留到下一轮，不丢。
                 if feed_sent_this_cycle >= MAX_FEED_BREAKING_PER_CYCLE:
                     continue
                 feed_sent_this_cycle += 1
+            else:
+                if rss_sent_this_cycle >= rss_budget:
+                    continue
+                rss_sent_this_cycle += 1
             title = html.escape(it.get("title", ""), quote=True)
             link = html.escape(it.get("link", ""), quote=True)
             source = html.escape(it.get("source", ""), quote=True)

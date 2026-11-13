@@ -112,7 +112,7 @@ def main():
     ok &= check("POST 上限 200", r.status_code == 200)
     r = client.get(f"/api/group/{GROUP}/ai-news")
     ok &= check("读回上限 5", r.json()["ai_news"]["max_breaking_per_day"] == 5)
-    # 上限越界被拒（0 和 31 都 422；11 现在合法）
+    # 上限越界被拒（0 和 51 都 422；31 现在合法）
     r = client.post(
         f"/api/group/{GROUP}/ai-news",
         json={"daily_enabled": True, "daily_time": "09:00", "breaking_enabled": True,
@@ -122,9 +122,9 @@ def main():
     r = client.post(
         f"/api/group/{GROUP}/ai-news",
         json={"daily_enabled": True, "daily_time": "09:00", "breaking_enabled": True,
-              "max_breaking_per_day": 31},
+              "max_breaking_per_day": 51},
     )
-    ok &= check("上限 31 被拒 422", r.status_code == 422)
+    ok &= check("上限 51 被拒 422", r.status_code == 422)
     r = client.post(
         f"/api/group/{GROUP}/ai-news",
         json={"daily_enabled": True, "daily_time": "09:00", "breaking_enabled": True,

@@ -216,28 +216,25 @@ async def test_breaking_flow():
     # 再跑一次，不应重复发
     await ai_news.check_breaking_news(bot)
     ok &= check("第二次不重复发突发", len(bot.sent) == 1)
-    # 日限额：已发 1 条，再插 12 条突发，最多再发 9 条（每天上限 10）
+    # 日限额：已发 1 条，再插 55 条突发，最多再发 49 条（每天上限 50）。
+    # 每轮只取 20 条新入库的，所以要跑多轮才发得完。
     async with get_db() as db:
-        for i in range(12):
+        for i in range(55):
             await db.execute(
                 "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
                 "VALUES (?, ?, ?, ?, ?)",
                 ("Test", f"Claude 新模型发布 {i}", f"https://example.com/break{i+2}", now, now),
             )
-    await ai_news.check_breaking_news(bot)
-    ok &= check("日限额：全天最多 10 条突发", len(bot.sent) == 10)
-    # 动态直通：来源 Muse动态 的条目不走关键词/AI 门，标题再普通也发
+    for _ in range(4):
+        await ai_news.check_breaking_news(bot)
+    ok &= check("日限额：全天最多 50 条突发", len(bot.sent) == 50)
+    # 动态直通 + 不计入上限：来源 Muse动态 的条目不走关键词/AI 门，
+    # 而且不占每日 50 条的名额——RSS 预算已用完，动态照样发
     async with get_db() as db:
         await db.execute(
             "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
             "VALUES (?, ?, ?, ?, ?)",
             ("Muse动态", "今天群里聊点别的", "https://example.com/feed1", now, now),
-        )
-    # 先把上限调高到 30，避免被日限额挡住
-    async with get_db() as db:
-        await db.execute(
-            "UPDATE ai_news_settings SET max_breaking_per_day = 30 WHERE group_id = ?",
-            (GROUP,),
         )
     before_feed = len(bot.sent)
     await ai_news.check_breaking_news(bot)
@@ -246,8 +243,13 @@ async def test_breaking_flow():
         len(bot.sent) > before_feed
         and any("今天群里聊点别的" in m["text"] for m in bot.sent),
     )
-    # 之前被日限额挡住、没发完的突发条目，现在会留到下一轮补发，而不是悄悄丢掉
-    ok &= check("没发完的突发留到下一轮补发", len(bot.sent) == before_feed + 4)
+    ok &= check("动态不计入每日上限：RSS 预算用完照样发", len(bot.sent) == before_feed + 1)
+    # 被日限额挡住没发完的 RSS 突发留到下一轮，不悄悄丢掉
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT COUNT(*) AS c FROM ai_news_items WHERE source = 'Test' AND sent_breaking = 0"
+        )
+    ok &= check("没发完的突发留在库里", int((row or {}).get("c") or 0) == 6)
     return ok
 
 

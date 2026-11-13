@@ -67,14 +67,14 @@ def main():
     ok = True
 
     # 1. 上限 helper
-    ok &= check("上限默认 10", _max_breaking_per_day({}) == 10)
-    ok &= check("上限空串默认 10", _max_breaking_per_day({"max_breaking_per_day": ""}) == 10)
+    ok &= check("上限默认 50", _max_breaking_per_day({}) == 50)
+    ok &= check("上限空串默认 50", _max_breaking_per_day({"max_breaking_per_day": ""}) == 50)
     ok &= check("上限 5", _max_breaking_per_day({"max_breaking_per_day": 5}) == 5)
-    ok &= check("上限 30 有效", _max_breaking_per_day({"max_breaking_per_day": 30}) == 30)
-    ok &= check("上限 31 越界回默认", _max_breaking_per_day({"max_breaking_per_day": 31}) == 10)
-    ok &= check("上限 0 越界回默认", _max_breaking_per_day({"max_breaking_per_day": 0}) == 10)
-    ok &= check("上限 99 越界回默认", _max_breaking_per_day({"max_breaking_per_day": 99}) == 10)
-    ok &= check("上限非法回默认", _max_breaking_per_day({"max_breaking_per_day": "abc"}) == 10)
+    ok &= check("上限 50 有效", _max_breaking_per_day({"max_breaking_per_day": 50}) == 50)
+    ok &= check("上限 51 越界回默认", _max_breaking_per_day({"max_breaking_per_day": 51}) == 50)
+    ok &= check("上限 0 越界回默认", _max_breaking_per_day({"max_breaking_per_day": 0}) == 50)
+    ok &= check("上限 99 越界回默认", _max_breaking_per_day({"max_breaking_per_day": 99}) == 50)
+    ok &= check("上限非法回默认", _max_breaking_per_day({"max_breaking_per_day": "abc"}) == 50)
 
     # 2. 手动测试早报：发给群，Ollama 不通所以是标题清单（fallback）
     r = client.post(f"/api/group/{GROUP}/ai-news/test-digest")
