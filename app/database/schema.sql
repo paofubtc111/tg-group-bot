@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS group_sensitive_rules (
     group_id INTEGER NOT NULL,
     pattern TEXT NOT NULL,                   -- 敏感词或正则表达式
     match_type TEXT DEFAULT 'contains',      -- 'contains', 'exact', 'regex'
-    punish_action TEXT DEFAULT 'delete_only',-- 'delete_only', 'mute', 'kick', 'ban'
+    punish_action TEXT DEFAULT 'delete_only',-- 'delete_only', 'mute', 'mute_permanent', 'kick', 'ban'
     mute_duration INTEGER DEFAULT 3600,      -- 禁言时长(秒)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS group_moderation_settings (
     send_warning_msg BOOLEAN DEFAULT TRUE,   -- 是否发送违规告警
     warning_ttl INTEGER DEFAULT 5,           -- 警告消息自动销毁秒数 (默认 5 秒)
     max_warn_count INTEGER DEFAULT 3,        -- 累计违规封禁阈值
-    warn_action TEXT DEFAULT 'kick',         -- 达到阈值处罚: 'kick', 'ban', 'mute'
+    warn_action TEXT DEFAULT 'kick',         -- 达到阈值处罚: 'kick', 'ban', 'mute', 'mute_permanent'
     moderate_admins INTEGER DEFAULT 0,       -- 连管理员也拦截 (测试用, 默认关: 管理员豁免)
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
 );
@@ -94,6 +94,24 @@ CREATE TABLE IF NOT EXISTS user_warn_records (
     last_violation_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(group_id, user_id),
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 8b. 今日运势配置表（每群开关 + 档位 JSON：[{name, weight, lines}]）
+CREATE TABLE IF NOT EXISTS group_fortune_settings (
+    group_id INTEGER PRIMARY KEY,
+    enabled INTEGER DEFAULT 1,
+    tiers_json TEXT,
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
+-- 8c. 用户每日运势（全局一天一种：同一 user 同一天只有一条，不分群）
+CREATE TABLE IF NOT EXISTS user_daily_fortune (
+    user_id INTEGER NOT NULL,
+    fortune_date TEXT NOT NULL,
+    tier_name TEXT NOT NULL,
+    line_text TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(user_id, fortune_date)
 );
 
 -- 9. 本地 Ollama AI 配置表

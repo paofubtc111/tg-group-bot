@@ -63,7 +63,7 @@ class SensitiveRuleItem(BaseModel):
     pattern: str
     match_type: str = Field(default="contains", pattern="^(contains|exact|regex)$")
     punish_action: str = Field(
-        default="delete_only", pattern="^(delete_only|mute|kick|ban)$"
+        default="delete_only", pattern="^(delete_only|mute|mute_permanent|kick|ban)$"
     )
     mute_duration: int = Field(default=3600, ge=60, le=2592000)
 
@@ -75,7 +75,7 @@ class ModerationConfigPayload(BaseModel):
     send_warning_msg: bool = True
     warning_ttl: int = Field(default=5, ge=0, le=300)
     max_warn_count: int = Field(default=3, ge=1, le=20)
-    warn_action: str = Field(default="kick", pattern="^(kick|ban|mute)$")
+    warn_action: str = Field(default="kick", pattern="^(kick|ban|mute|mute_permanent)$")
     moderate_admins: bool = False
     rules: Optional[List[SensitiveRuleItem]] = None
     batch_keywords: Optional[List[str]] = None
@@ -111,6 +111,17 @@ class AINewsConfigPayload(BaseModel):
     breaking_events: str = ""
     # 每日突发上限（1-10，默认 3）
     max_breaking_per_day: int = Field(default=50, ge=1, le=50)
+
+
+class FortuneTierItem(BaseModel):
+    name: str = Field(min_length=1, max_length=20)
+    weight: float = Field(default=25, gt=0, le=1000)
+    lines: List[str] = Field(min_length=1, max_length=20)
+
+
+class FortuneConfigPayload(BaseModel):
+    enabled: bool = True
+    tiers: List[FortuneTierItem] = Field(min_length=1, max_length=10)
 
 
 class EmergencyConfigPayload(BaseModel):
@@ -932,6 +943,58 @@ async def api_test_digest(
         f"手动发送测试早报: {result.get('status')}, {result.get('items', 0)} 条新闻",
     )
     return result
+
+
+@api_router.get("/api/group/{group_id}/fortune")
+async def api_get_fortune(
+    group_id: int, request: Request, user: dict = Depends(get_current_user)
+) -> dict:
+    await require_group_admin(request, group_id, user)
+    await ensure_group_initialized(group_id)
+    from app.bot.handlers.fortune import get_fortune_config
+
+    enabled, tiers = await get_fortune_config(group_id)
+    return {"fortune": {"group_id": group_id, "enabled": enabled, "tiers": tiers}}
+
+
+@api_router.post("/api/group/{group_id}/fortune")
+async def api_save_fortune(
+    group_id: int,
+    payload: FortuneConfigPayload,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    await require_group_admin(request, group_id, user)
+    await ensure_group_initialized(group_id)
+    from app.bot.handlers.fortune import _clean_tiers
+
+    tiers = _clean_tiers([t.model_dump() for t in payload.tiers])
+    if not tiers:
+        raise HTTPException(status_code=422, detail="至少保留一档运势，每档至少一句有效话术")
+    tiers_json = json.dumps(tiers, ensure_ascii=False)
+    async with get_db() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO group_fortune_settings "
+            "(group_id, enabled, tiers_json) VALUES (?, ?, ?)",
+            (group_id, int(payload.enabled), tiers_json),
+        )
+        await db.execute(
+            "UPDATE group_fortune_settings SET enabled = ?, tiers_json = ? "
+            "WHERE group_id = ?",
+            (int(payload.enabled), tiers_json, group_id),
+        )
+
+    await record_audit_log(
+        group_id,
+        int(user["id"]),
+        user.get("first_name") or "Admin",
+        "update_fortune",
+        f"更新今日运势配置: 开关={payload.enabled}, {len(tiers)} 档",
+    )
+    return {
+        "status": "ok",
+        "fortune": {"group_id": group_id, "enabled": payload.enabled, "tiers": tiers},
+    }
 
 
 @api_router.post("/api/ai-news/feed-import")

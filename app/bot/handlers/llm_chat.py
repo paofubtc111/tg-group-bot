@@ -7,6 +7,7 @@ import httpx
 from aiogram import Bot, F, Router, types
 from aiogram.enums import ChatAction
 
+from app.bot.handlers.fortune import check_daily_fortune
 from app.bot.handlers.games import handle_dice_command, handle_lottery_commands
 from app.bot.handlers.group_features import (
     check_bottom_buttons,
@@ -178,6 +179,7 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     3. 强制订阅检查 (未订阅频道者禁言并提示)
     3.5 群底部按钮 (广告) —— 须在关键词自动回复之前, 否则“广告”会被关键词回复吃掉
     3.6 发言积分发放 (首条/每条/随机, 受每日上限控制)
+    3.7 今日运势 (消息带“运势”则抽签并结束；群聊与私聊都可用)
     4. 关键词自动回复 (命中则回复并结束, 不调用 Ollama)
     5. 积分指令 (签到/积分/排行/流水/兑换)
     6. 抽奖与骰子指令 (抽奖/开奖/骰子)
@@ -225,6 +227,10 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     # 第 3.6 步：发言积分发放
     if is_group:
         await award_message_points(message.chat.id, message.from_user)
+
+    # 第 3.7 步：今日运势 (命中则抽签回复并结束；群聊与私聊都可用)
+    if await check_daily_fortune(message, bot):
+        return
 
     # 第四步：关键词自动回复 (命中则直接回复, 不再调用 Ollama)
     if is_group and await check_keyword_reply(message, bot):

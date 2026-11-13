@@ -279,6 +279,14 @@ async def inspect_and_moderate_message(message: types.Message, bot: Bot) -> bool
                 until_date=until_ts,
             )
             action_desc = f"已禁言 {mute_duration // 60} 分钟"
+        elif action == "mute_permanent":
+            # 永久禁言: 不传 until_date, Telegram 视为永久限制
+            await bot.restrict_chat_member(
+                chat_id,
+                user_id,
+                permissions=ChatPermissions(can_send_messages=False),
+            )
+            action_desc = "已永久禁言"
         elif action == "kick":
             await bot.ban_chat_member(chat_id, user_id)
             await bot.unban_chat_member(chat_id, user_id)

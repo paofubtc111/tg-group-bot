@@ -326,6 +326,7 @@
                 <option value="kick">移出群聊 (Kick 可再进)</option>
                 <option value="ban">永久封禁拉黑 (Ban)</option>
                 <option value="mute">禁言 1 小时 (Mute)</option>
+                <option value="mute_permanent">永久禁言 (Mute 永久)</option>
               </select>
             </div>
           </div>
@@ -365,6 +366,7 @@
           <select id="new-rule-action" class="sm:col-span-3 px-2 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white">
             <option value="delete_only">仅撤回警告 (delete_only)</option>
             <option value="mute">禁言 1 小时 (mute)</option>
+            <option value="mute_permanent">永久禁言 (mute_permanent)</option>
             <option value="kick">移出群聊 (kick)</option>
             <option value="ban">永久拉黑 (ban)</option>
           </select>
@@ -653,6 +655,42 @@
 
         <div class="flex items-center justify-between pt-2 border-t border-white/10">
           <span class="text-xs text-slate-400">RSS 源：TechCrunch AI、The Verge AI、Hugging Face、Google AI Blog、MIT Tech Review、36氪、VentureBeat · 已入库文章：<strong id="ainews-items-count" class="text-violet-300">0</strong> 条</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图: 🎋 今日运势 ==================== -->
+    <section id="view-fortune" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-[#171430]/90 border border-white/10 space-y-4">
+        <div class="flex items-center justify-between border-b border-white/10 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white">🎋 今日运势</h2>
+            <p class="text-xs text-slate-400 mt-0.5">群里或私聊发带“运势”的消息就抽签，每人每天全局一种，北京时间 00:00 后可再抽</p>
+          </div>
+          <button type="button" onclick="saveFortuneSettings()" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition shadow-md shadow-violet-500/25">
+            保存运势配置
+          </button>
+        </div>
+
+        <label class="flex items-center justify-between p-3.5 rounded-xl bg-black/30 border border-white/10 cursor-pointer">
+          <div>
+            <div class="text-xs font-semibold text-white">今日运势开关</div>
+            <div class="text-[11px] text-slate-400">关掉后发“运势”不再抽签，直接走关键词自动回复或 AI 对话</div>
+          </div>
+          <input id="fortune-enabled" type="checkbox" class="w-4 h-4 accent-violet-500 rounded" />
+        </label>
+
+        <div class="p-3 rounded-xl bg-black/25 border border-white/10 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="text-xs font-semibold text-slate-200">运势档位与话术</div>
+              <div class="text-[11px] text-slate-400">权重按比例抽：4 档各填 25 就是各 25%；每档话术一行一句，抽中该档后随机挑一句</div>
+            </div>
+            <button type="button" onclick="addFortuneTier()" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-xs transition shrink-0">
+              + 加一档
+            </button>
+          </div>
+          <div id="fortune-tiers-list" class="space-y-2"></div>
         </div>
       </div>
     </section>
@@ -1565,6 +1603,15 @@
         category: '智能 AI'
       },
       {
+        id: 'fortune',
+        icon: '🎋',
+        title: '今日运势',
+        desc: '消息带“运势”就抽签，每人每天全局一种，可配档位、权重与话术',
+        keywords: '运势 抽签 今日运势 大吉 占卜 fortune',
+        badgeKey: 'fortune',
+        category: '内容互动'
+      },
+      {
         id: 'templates',
         icon: '📄',
         title: '消息模板库',
@@ -1761,6 +1808,20 @@
       aiNews: {
         '-1001889002': { group_id: -1001889002, daily_enabled: true, daily_time: '09:00', breaking_enabled: true, last_digest_date: '2026-11-11', breaking_high_signal: '', breaking_models: '', breaking_events: '', max_breaking_per_day: 50 },
         '-1001889003': { group_id: -1001889003, daily_enabled: false, daily_time: '09:00', breaking_enabled: false, last_digest_date: '', breaking_high_signal: '', breaking_models: '', breaking_events: '', max_breaking_per_day: 50 }
+      },
+      fortune: {
+        '-1001889002': { group_id: -1001889002, enabled: true, tiers: [
+          { name: '大吉', weight: 25, lines: ['总裁您今天吉星高照，运势腾达，天降横财。'] },
+          { name: '吉', weight: 25, lines: ['今天手气不错，把握住小机会，小赚一笔。'] },
+          { name: '凶', weight: 25, lines: ['今天水逆，注意小人，别被害了，稳住别浪。'] },
+          { name: '大凶', weight: 25, lines: ['总裁您今日诸事不宜，适合躺平，钱包捂紧，明天再战。'] }
+        ] },
+        '-1001889003': { group_id: -1001889003, enabled: false, tiers: [
+          { name: '大吉', weight: 25, lines: ['总裁您今天吉星高照，运势腾达，天降横财。'] },
+          { name: '吉', weight: 25, lines: ['今天手气不错，把握住小机会，小赚一笔。'] },
+          { name: '凶', weight: 25, lines: ['今天水逆，注意小人，别被害了，稳住别浪。'] },
+          { name: '大凶', weight: 25, lines: ['总裁您今日诸事不宜，适合躺平，钱包捂紧，明天再战。'] }
+        ] }
       },
       emergency: {
         '-1001889002': { group_id: -1001889002, lockdown_mode: false, raid_protection: false, enable_admin_call: true, notify_admins_dm: true },
@@ -2127,6 +2188,15 @@
         const row = mockStore.aiNews[gKey] || { group_id: gid, daily_enabled: false, daily_time: '09:00', breaking_enabled: false, last_digest_date: '' };
         return { status: 'ok', ai_news: row, news_items_count: 128 };
       }
+      if (sub === 'fortune') {
+        if (method === 'POST' && body) {
+          const prev = mockStore.fortune[gKey] || {};
+          mockStore.fortune[gKey] = { group_id: gid, ...prev, ...body };
+          pushMockLog(gid, 'update_fortune', `更新今日运势: 开关=${body.enabled}, ${body.tiers ? body.tiers.length : 0} 档`);
+        }
+        const row = mockStore.fortune[gKey] || { group_id: gid, enabled: true, tiers: [] };
+        return { status: 'ok', fortune: row };
+      }
       if (sub === 'llm/history' && method === 'DELETE') {
         if (mockStore.llm[gKey]) mockStore.llm[gKey].history_count = 0;
         pushMockLog(gid, 'clear_llm_history', '清空本群 AI 对话历史上下文记忆');
@@ -2429,7 +2499,7 @@
     // ==================== 4. 视图路由与中枢卡片渲染 ====================
     function navigateToView(viewId) {
       appState.currentView = viewId;
-      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'ai-news', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons'];
+      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'ai-news', 'fortune', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons'];
       allViews.forEach(v => {
         const sec = document.getElementById(`view-${v}`);
         if (sec) sec.classList.toggle('hidden', v !== viewId);
@@ -2672,7 +2742,7 @@
       // 没有接入群组时不拉取任何群配置，避免请求 /api/group/null/* 后被演示数据冒充
       if (!appState.activeGroupId) return;
       const gid = appState.activeGroupId;
-      const [ov, cap, tpl, wel, mod, llm, emg, logs, wl, kw, sch, fs, an] = await Promise.all([
+      const [ov, cap, tpl, wel, mod, llm, emg, logs, wl, kw, sch, fs, an, ft] = await Promise.all([
         apiRequest('GET', `/api/group/${gid}/overview`),
         apiRequest('GET', `/api/group/${gid}/captcha`),
         apiRequest('GET', `/api/group/${gid}/templates`),
@@ -2685,7 +2755,8 @@
         apiRequest('GET', `/api/group/${gid}/keyword-replies`),
         apiRequest('GET', `/api/group/${gid}/scheduled`),
         apiRequest('GET', `/api/group/${gid}/force-subscribe`),
-        apiRequest('GET', `/api/group/${gid}/ai-news`)
+        apiRequest('GET', `/api/group/${gid}/ai-news`),
+        apiRequest('GET', `/api/group/${gid}/fortune`)
       ]);
 
       appState.overview = ov;
@@ -2698,6 +2769,7 @@
       appState.llm.history_count = (llm && llm.history_count) ?? 0;
       appState.aiNews = (an && an.ai_news) || {};
       appState.aiNews.items_count = (an && an.news_items_count) ?? 0;
+      appState.fortune = (ft && ft.fortune) || {};
       appState.emergency = (emg && emg.emergency) || {};
       appState.logs = (logs && logs.logs) || [];
       appState.whitelist = (wl && wl.whitelist) || [];
@@ -2712,6 +2784,7 @@
       populateWelcomeForm();
       populateLLMForm();
       populateAINewsForm();
+      populateFortuneForm();
       populateEmergencyForm();
       renderAuditLogs();
       renderWhitelistList();
@@ -2777,6 +2850,7 @@
       const actionBadgeMap = {
         delete_only: '<span class="px-2 py-0.5 rounded bg-white/5 text-slate-300 text-[10px]">仅秒删警告</span>',
         mute: '<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px]">禁言 1 小时</span>',
+        mute_permanent: '<span class="px-2 py-0.5 rounded bg-amber-600/30 text-amber-200 text-[10px]">永久禁言</span>',
         kick: '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px]">移出群聊</span>',
         ban: '<span class="px-2 py-0.5 rounded bg-rose-600/30 text-rose-200 text-[10px]">永久封禁</span>'
       };
@@ -3170,6 +3244,72 @@
       } else {
         showToast(`测试早报已发到群（${res.items} 条新闻${res.fallback ? '，AI 摘要未就绪用的标题清单' : ''}）`);
       }
+    }
+
+    // --- 6.4c 今日运势 (Fortune) ---
+    function fortuneTierCard(t, idx) {
+      return `<div class="p-3 rounded-xl bg-black/30 border border-white/10 space-y-2" data-tier-idx="${idx}">
+        <div class="flex items-center gap-2">
+          <input data-fortune-name type="text" value="${escapeHtml(t.name || '')}" placeholder="档位名，如：大吉" class="w-28 px-2.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
+          <label class="text-[11px] text-slate-400">权重</label>
+          <input data-fortune-weight type="number" min="1" max="1000" value="${t.weight ?? 25}" class="w-20 px-2 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white text-right" />
+          <button type="button" onclick="removeFortuneTier(${idx})" class="ml-auto px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 text-xs shrink-0">删除</button>
+        </div>
+        <textarea data-fortune-lines rows="2" placeholder="话术，一行一句" class="w-full p-2.5 rounded-xl bg-[#1c1836] border border-white/15 text-xs text-white">${escapeHtml((t.lines || []).join('\n'))}</textarea>
+      </div>`;
+    }
+
+    function renderFortuneTiers() {
+      const list = document.getElementById('fortune-tiers-list');
+      if (!list) return;
+      const tiers = (appState.fortune && appState.fortune.tiers) || [];
+      list.innerHTML = tiers.map(fortuneTierCard).join('') || '<div class="p-4 rounded-xl bg-black/25 border border-white/10 text-center text-xs text-slate-500">暂无档位，点右上“加一档”</div>';
+    }
+
+    function populateFortuneForm() {
+      const f = appState.fortune || {};
+      const enabledEl = document.getElementById('fortune-enabled');
+      if (enabledEl) enabledEl.checked = f.enabled !== undefined ? !!f.enabled : true;
+      renderFortuneTiers();
+    }
+
+    function collectFortuneTiers() {
+      const tiers = [];
+      document.querySelectorAll('#fortune-tiers-list [data-tier-idx]').forEach(card => {
+        const name = card.querySelector('[data-fortune-name]').value.trim();
+        const weight = Math.min(1000, Math.max(1, Number(card.querySelector('[data-fortune-weight]').value || 25)));
+        const lines = card.querySelector('[data-fortune-lines]').value.split('\n').map(s => s.trim()).filter(Boolean);
+        if (name && lines.length) tiers.push({ name, weight, lines });
+      });
+      return tiers;
+    }
+
+    function addFortuneTier() {
+      const f = appState.fortune || {};
+      f.tiers = [...(f.tiers || []), { name: '', weight: 25, lines: [''] }];
+      appState.fortune = f;
+      renderFortuneTiers();
+    }
+
+    function removeFortuneTier(idx) {
+      const tiers = (appState.fortune && appState.fortune.tiers) || [];
+      tiers.splice(idx, 1);
+      renderFortuneTiers();
+    }
+
+    async function saveFortuneSettings() {
+      const tiers = collectFortuneTiers();
+      if (!tiers.length) {
+        showToast('至少保留一档运势，每档至少一句有效话术');
+        return;
+      }
+      const payload = {
+        enabled: document.getElementById('fortune-enabled').checked,
+        tiers
+      };
+      await apiRequest('POST', `/api/group/${appState.activeGroupId}/fortune`, payload);
+      await refreshAllGroupData();
+      showToast('运势配置已保存');
     }
 
     // --- 6.5 紧急模式与权限 (Emergency) ---
