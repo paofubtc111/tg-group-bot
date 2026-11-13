@@ -11,6 +11,7 @@ import asyncio
 import os
 import sys
 from datetime import datetime, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 os.environ["DATABASE_PATH"] = "/tmp/test_ai_news.db"
@@ -42,6 +43,9 @@ def check(name, cond):
 
 
 async def fresh_db():
+    # 先关连接池再删文件：否则池里还连着已删的旧文件（unlinked inode），
+    # 新连接走新文件，读写会分裂到两个库（test_ai_scoring 在全量跑时就因此丢过发送）。
+    await close_db()
     if os.path.exists("/tmp/test_ai_news.db"):
         os.remove("/tmp/test_ai_news.db")
     await init_db()
@@ -207,14 +211,16 @@ async def test_breaking_flow():
             "VALUES (?, ?, ?, ?, ?)",
             ("Test", "今天天气不错", "https://example.com/normal1", now, now),
         )
-    await ai_news.check_breaking_news(bot)
+    with patch.object(ai_news, "_score_importance", return_value=None):
+        await ai_news.check_breaking_news(bot)
     ok = True
     ok &= check("突发只发了 1 条（GPT-5）", len(bot.sent) == 1)
     ok &= check("突发内容含标题", bot.sent and "GPT-5" in bot.sent[0]["text"])
     ok &= check("突发内容含原文链接", bot.sent and "https://example.com/break1" in bot.sent[0]["text"])
     ok &= check("突发不带链接预览", bot.sent and bot.sent[0].get("disable_web_page_preview") is True)
     # 再跑一次，不应重复发
-    await ai_news.check_breaking_news(bot)
+    with patch.object(ai_news, "_score_importance", return_value=None):
+        await ai_news.check_breaking_news(bot)
     ok &= check("第二次不重复发突发", len(bot.sent) == 1)
     # 日限额：已发 1 条，再插 55 条突发，最多再发 49 条（每天上限 50）。
     # 每轮只取 20 条新入库的，所以要跑多轮才发得完。
@@ -225,25 +231,37 @@ async def test_breaking_flow():
                 "VALUES (?, ?, ?, ?, ?)",
                 ("Test", f"Claude 新模型发布 {i}", f"https://example.com/break{i+2}", now, now),
             )
-    for _ in range(4):
-        await ai_news.check_breaking_news(bot)
+    with patch.object(ai_news, "_score_importance", return_value=None):
+        for _ in range(4):
+            await ai_news.check_breaking_news(bot)
     ok &= check("日限额：全天最多 50 条突发", len(bot.sent) == 50)
-    # 动态直通 + 不计入上限：来源 Muse动态 的条目不走关键词/AI 门，
-    # 而且不占每日 50 条的名额——RSS 预算已用完，动态照样发
+    # 动态不再直通（2026-11-13 pao：量太大，改走关键词 + AI 打分）：
+    # 带关键词的动态（GPT-5 发布）照样发突发；无关键词的闲聊只进早报，不发。
+    # 打分 mock 成 None（Ollama 不通 → 按关键词直接发），聚焦关键词门。
     async with get_db() as db:
         await db.execute(
             "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            ("Muse动态", "今天群里聊点别的", "https://example.com/feed1", now, now),
+            ("Muse动态", "GPT-5 正式发布", "https://example.com/feed1", now, now),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("Muse动态", "今天群里聊点别的", "https://example.com/feed2", now, now),
         )
     before_feed = len(bot.sent)
-    await ai_news.check_breaking_news(bot)
+    with patch.object(ai_news, "_score_importance", return_value=None):
+        await ai_news.check_breaking_news(bot)
     ok &= check(
-        "动态直通突发：无关键词也发",
+        "动态走关键词门：带关键词的发",
         len(bot.sent) > before_feed
-        and any("今天群里聊点别的" in m["text"] for m in bot.sent),
+        and any("GPT-5 正式发布" in m["text"] for m in bot.sent),
     )
     ok &= check("动态不计入每日上限：RSS 预算用完照样发", len(bot.sent) == before_feed + 1)
+    ok &= check(
+        "动态无关键词的不发突发",
+        not any("今天群里聊点别的" in m["text"] for m in bot.sent),
+    )
     # 被日限额挡住没发完的 RSS 突发留到下一轮，不悄悄丢掉
     async with get_db() as db:
         row = await db.fetchrow(
@@ -339,9 +357,10 @@ async def test_feed_breaking_rate_limit():
             await db.execute(
                 "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
                 "VALUES (?, ?, ?, ?, ?)",
-                ("Muse动态", f"动态快讯 {i}", f"https://example.com/feedcap{i}", now, now),
+                ("Muse动态", f"GPT-5 正式发布 动态 {i}", f"https://example.com/feedcap{i}", now, now),
             )
-    await ai_news.check_breaking_news(bot)
+    with patch.object(ai_news, "_score_importance", return_value=None):
+        await ai_news.check_breaking_news(bot)
     ok = True
     ok &= check("动态快讯一轮最多发 2 条", len(bot.sent) == 2)
     async with get_db() as db:
@@ -349,10 +368,83 @@ async def test_feed_breaking_rate_limit():
             "SELECT COUNT(*) AS c FROM ai_news_items WHERE source = 'Muse动态' AND sent_breaking = 0"
         )
     ok &= check("没发完的动态留在库里", int((row or {}).get("c") or 0) == 3)
-    await ai_news.check_breaking_news(bot)
+    with patch.object(ai_news, "_score_importance", return_value=None):
+        await ai_news.check_breaking_news(bot)
     ok &= check("下一轮再发 2 条", len(bot.sent) == 4)
-    await ai_news.check_breaking_news(bot)
+    with patch.object(ai_news, "_score_importance", return_value=None):
+        await ai_news.check_breaking_news(bot)
     ok &= check("第三轮发完最后 1 条", len(bot.sent) == 5)
+    return ok
+
+
+async def test_ai_scoring():
+    """AI 打分（C）：高分发、低分不发、打分失败（None）按关键词直接发。"""
+    await fresh_db()
+    await ai_news.ensure_default_settings()
+    bot = FakeBot()
+    now = datetime.now(CST).isoformat(timespec="seconds")
+    async with get_db() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("Test", "OpenAI 正式发布 GPT-5", "https://example.com/score5", now, now),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("Test", "Claude 新模型发布", "https://example.com/score2", now, now),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("Test", "Gemini 新模型发布", "https://example.com/scoreNone", now, now),
+        )
+
+    async def fake_score(base_url, model_name, title, summary=""):
+        if "GPT-5" in title:
+            return 5
+        if "Claude" in title:
+            return 2
+        return None
+
+    with patch.object(ai_news, "_score_importance", side_effect=fake_score):
+        await ai_news.check_breaking_news(bot)
+    ok = True
+    ok &= check("打分 5 分的发", any("GPT-5" in m["text"] for m in bot.sent))
+    ok &= check("打分 2 分的不发", not any("Claude" in m["text"] for m in bot.sent))
+    ok &= check("打分失败（None）按关键词直接发", any("Gemini" in m["text"] for m in bot.sent))
+    ok &= check("一共发了 2 条", len(bot.sent) == 2)
+    # 低分条目已标记处理，不会下一轮重打分再发
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT sent_breaking FROM ai_news_items WHERE link = ?",
+            ("https://example.com/score2",),
+        )
+    ok &= check("低分条目已标记处理", int((row or {}).get("sent_breaking") or 0) == 1)
+    return ok
+
+
+async def test_bwenews_bypass():
+    """方程式新闻直通：无关键词也发，不占每日上限；打分不影响它。"""
+    await fresh_db()
+    await ai_news.ensure_default_settings()
+    bot = FakeBot()
+    now = datetime.now(CST).isoformat(timespec="seconds")
+    async with get_db() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("方程式新闻", "某交易所上新某某币", "https://example.com/bwe1", now, now),
+        )
+
+    async def fake_score_low(base_url, model_name, title, summary=""):
+        return 1  # 就算打 1 分，方程式也不受影响
+
+    with patch.object(ai_news, "_score_importance", side_effect=fake_score_low):
+        await ai_news.check_breaking_news(bot)
+    ok = True
+    ok &= check("方程式无关键词也发", len(bot.sent) == 1)
+    ok &= check("方程式内容含标题", bot.sent and "某交易所上新某某币" in bot.sent[0]["text"])
     return ok
 
 
@@ -368,6 +460,8 @@ async def main():
     results.append(await test_digest_fallback())
     results.append(await test_digest_fires_after_time())
     results.append(await test_feed_breaking_rate_limit())
+    results.append(await test_ai_scoring())
+    results.append(await test_bwenews_bypass())
     total = sum(1 for r in results if r)
     print(f"\n{total}/{len(results)} 组测试通过")
     await close_db()

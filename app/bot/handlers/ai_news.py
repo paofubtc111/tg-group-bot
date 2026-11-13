@@ -2,11 +2,16 @@
 """
 AI 新闻：每日早报 + 突发快讯。
 
-来源：AI 媒体 RSS，每 30 分钟拉一次，链接去重后存库。
+来源：AI 媒体 RSS + Muse 动态 + 方程式新闻，每 30 分钟拉一次，链接去重后存库。
 - 每日早报：每天指定时间（默认 09:00），把昨天的新新闻交给 qwen2.5
 翻译+摘要成中文早报发到群里；Ollama 不通时降级为标题+链接清单。
-- 突发快讯：新文章命中突发关键词就立刻发（标题+来源+链接，不走 LLM，
-这样 Ollama 断了也能发）；每群每天最多 3 条，防刷屏。
+方程式新闻是加密快讯，不进 AI 早报。
+- 突发快讯：三层筛选（学方程式新闻：正则 + AI + 人工，这里人工换成早报兜底）。
+  1) 关键词初筛：高信号词 + AI 相关，或模型名 + 事件词；
+  2) qwen2.5 打分 1-5，>= 4 才发，1-3 只进早报；Ollama 不通时按关键词直接发；
+  3) 方程式新闻直通：他发什么直接转发（只限 6 小时内的新快讯）。
+  每群每天最多 50 条（只算 RSS 突发；动态、方程式不占名额），
+  动态每轮每群最多 2 条防刷屏。
 
 默认只发到“拥抱A i”（-1004496842671），其他群需在 ai_news_settings 里打开。
 面板配置入口后续再加；现在改配置直接改库或找 Ryan。
@@ -41,6 +46,14 @@ DEFAULT_DAILY_TIME = "09:00"
 # 不限流会一分钟连发 10 条挤爆群聊；没发完的留在库里下一轮再发，不丢。
 MAX_FEED_BREAKING_PER_CYCLE = 2
 
+# 方程式新闻：只转发 6 小时内发布的新快讯。RSS 首次拉取会带回最近 20 条
+# （约 10 天的量），不加新鲜度过滤会一次全发出来刷屏；旧的直接不入库。
+BWENEWS_MAX_AGE_HOURS = 6
+# AI 打分门槛：1-5 分，>= 4 才发突发（4 = 重要，5 = 重大）；1-3 只进早报。
+IMPORTANCE_THRESHOLD = 4
+# 打分单次超时（秒）：Ollama 在 pao 电脑上，断了不能让快讯循环卡 60 秒。
+SCORE_TIMEOUT_SECONDS = 20
+
 RSS_FEEDS = [
     ("TechCrunch AI", "https://techcrunch.com/category/artificial-intelligence/feed/"),
     ("The Verge AI", "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"),
@@ -48,7 +61,9 @@ RSS_FEEDS = [
     ("Hugging Face", "https://huggingface.co/blog/feed.xml"),
     ("Google AI Blog", "https://blog.google/technology/ai/rss/"),
     ("MIT Tech Review", "https://www.technologyreview.com/topic/artificial-intelligence/feed/"),
-    ("36氪", "https://www.36kr.com/feed"),
+    # 方程式新闻 BWEnews（加密快讯，@BWEnews）：主频道中文 RSS，免费免 Key。
+    # pao 2026-11-13：他发什么直接转发。已是精选源（月均 ~58 条），不走关键词/AI 门。
+    ("方程式新闻", "https://api.eqn.news/public/rss?ch=main&lang=zh"),
 ]
 
 # 突发关键词：分两档，避免刷屏。
@@ -189,6 +204,20 @@ def build_fallback_digest(date_str: str, items: list) -> str:
     return "\n".join(lines)
 
 
+def _entry_published_dt(entry):
+    """取 RSS 条目的发布时间（aware datetime，UTC）；解析失败返回 None。"""
+    from datetime import timezone as _tz
+    parsed = getattr(entry, "published_parsed", None) or getattr(
+        entry, "updated_parsed", None
+    )
+    if parsed:
+        try:
+            return datetime(*parsed[:6], tzinfo=_tz.utc)
+        except Exception:
+            return None
+    return None
+
+
 async def fetch_all_feeds() -> list:
     """拉全部 RSS 源，返回文章列表（不去重，去重在入库时做）。"""
     out = []
@@ -203,6 +232,15 @@ async def fetch_all_feeds() -> list:
                     link = (getattr(entry, "link", "") or "").strip()
                     if not title or not link:
                         continue
+                    # 方程式新闻只收 6 小时内的新快讯：RSS 首次会带回最近 20 条
+                    # （约 10 天的量），全入库会一次刷屏；旧的直接丢弃。
+                    if source == "方程式新闻":
+                        dt = _entry_published_dt(entry)
+                        if dt is None:
+                            continue
+                        from datetime import timezone as _tz
+                        if datetime.now(_tz.utc) - dt > timedelta(hours=BWENEWS_MAX_AGE_HOURS):
+                            continue
                     # 摘要是给 qwen 写早报的素材，必须带上；Hugging Face 等源没有
                     # 摘要字段时留空，提示词里会让模型只按标题写一句话。
                     raw_summary = getattr(entry, "summary", "") or getattr(
@@ -370,8 +408,51 @@ def _max_breaking_per_day(cfg: dict) -> int:
 
 
 def _is_feed_item(item: dict) -> bool:
-    """是否来自 Muse 动态：动态已按 pao 的兴趣筛过，直通突发，不走关键词/AI 门。"""
+    """是否来自 Muse 动态：不计入每日上限、每轮限流 2 条。
+    （2026-11-13 改：动态不再直通突发，改走关键词 + AI 打分，和 RSS 同一套门。）"""
     return (item.get("source", "") or "").startswith("Muse")
+
+
+def _is_bwenews_item(item: dict) -> bool:
+    """是否来自方程式新闻：pao 2026-11-13 定，他发什么直接转发，
+    不走关键词/AI 门、不占每日上限。"""
+    return (item.get("source", "") or "").startswith("方程式")
+
+
+SCORE_SYSTEM_PROMPT = """你是一名 AI 科技新闻编辑。给下面这条新闻的重要性打分，只输出一个 1-5 的数字，不要输出其他内容。
+
+打分标准：
+5 = 重大事件：旗舰大模型发布、IPO/上市、巨额融资/并购、监管/禁令/起诉、重大安全事件、大厂 CEO 变动
+4 = 重要：重要模型/产品发布、开源权重、技术突破、重要政策
+3 = 一般：常规产品更新、中小模型发布、行业动态
+2 = 次要：小功能更新、教程、观点文章
+1 = 不重要：八卦、重复报道、无实质内容
+
+只输出数字。"""
+
+
+async def _score_importance(base_url: str, model_name: str, title: str, summary: str = "") -> int | None:
+    """用 Ollama 给新闻重要性打分 1-5；Ollama 不可用/超时/解析失败返回 None。
+    调用方把 None 当“打分失败”，按关键词直接发，保证 Ollama 断了快讯不断。"""
+    user = f"标题：{title}\n摘要：{(summary or '无')[:200]}"
+    try:
+        content = await asyncio.wait_for(
+            query_ollama_chat(
+                base_url=base_url,
+                model_name=model_name,
+                system_prompt=SCORE_SYSTEM_PROMPT,
+                history=[],
+                user_prompt=user,
+            ),
+            timeout=SCORE_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning("AI 打分失败（%s）：%s", title[:30], exc)
+        return None
+    if not content:
+        return None
+    m = re.search(r"[1-5]", content.strip())
+    return int(m.group(0)) if m else None
 
 
 def _is_ai_related(title: str, ai_terms=None) -> bool:
@@ -405,14 +486,16 @@ async def check_breaking_news(bot: Bot) -> None:
         )
     if not fresh:
         return
-    # 每群用自己的关键词算突发（没配就用默认词）
+    # 每群用自己的关键词算突发（没配就用默认词）。
+    # 动态不再直通（2026-11-13 pao：量太大，改走关键词 + AI 打分）；
+    # 方程式新闻直通（pao：他发什么直接转发）。
     group_breaking = {}
     any_breaking = False
     for cfg in groups:
         high, models, events = _breaking_keywords(cfg)
         items = [
             it for it in fresh
-            if _is_feed_item(it)
+            if _is_bwenews_item(it)
             or _is_breaking(it.get("title", ""), high, models, events)
         ]
         group_breaking[cfg["group_id"]] = items
@@ -425,6 +508,31 @@ async def check_breaking_news(bot: Bot) -> None:
                     "UPDATE ai_news_items SET sent_breaking = 1 WHERE id = ?", (it["id"],)
                 )
         return
+    # AI 打分（C）：给过关键词的候选条目打分，低分只进早报不发快讯。
+    # 方程式新闻不打分（直通）。Ollama 不可用时整轮跳过打分、按关键词直接发，
+    # 保证快讯不断；熔断后本轮剩余条目不再调 Ollama，避免一次卡 20 秒。
+    candidate_ids = {
+        it["id"] for items in group_breaking.values() for it in items
+        if not _is_bwenews_item(it)
+    }
+    scores: dict = {}
+    if candidate_ids:
+        base_url, model_name = await get_group_llm(groups[0]["group_id"])
+        ollama_ok = True
+        by_id = {it["id"]: it for it in fresh}
+        for item_id in sorted(candidate_ids):
+            it = by_id.get(item_id)
+            if it is None:
+                continue
+            if not ollama_ok:
+                scores[item_id] = None
+                continue
+            s = await _score_importance(
+                base_url, model_name, it.get("title", ""), it.get("summary", "")
+            )
+            if s is None:
+                ollama_ok = False
+            scores[item_id] = s
     today = datetime.now(CST).date().isoformat()
     now_iso = datetime.now(CST).isoformat(timespec="seconds")
     # 所有群里算出的突发条目 id（并集）；没发完的动态要留在库里下一轮再发，
@@ -433,29 +541,41 @@ async def check_breaking_news(bot: Bot) -> None:
         it["id"] for items in group_breaking.values() for it in items
     }
     sent_ids: set = set()
+    low_score_ids: set = set()
     for cfg in groups:
         group_id = cfg["group_id"]
         breaking = group_breaking.get(group_id) or []
         if not breaking:
             continue
         async with get_db() as db:
-            # 每日上限只算 RSS 突发：动态不计入（pao 2026-11-13），
-            # 所以这里按来源排除 Muse动态 的发送记录。
+            # 每日上限只算 RSS 突发：动态、方程式不计入（pao 2026-11-13），
+            # 所以这里按来源排除 Muse动态 和方程式新闻的发送记录。
             sent_today = await db.fetchrow(
                 "SELECT COUNT(*) AS c FROM ai_news_sends s "
                 "LEFT JOIN ai_news_items i ON s.item_id = i.id "
                 "WHERE s.group_id = ? AND s.kind = 'breaking' "
                 "AND substr(s.sent_at, 1, 10) = ? "
-                "AND (i.source IS NULL OR i.source NOT LIKE 'Muse%')",
+                "AND (i.source IS NULL OR (i.source NOT LIKE 'Muse%' "
+                "AND i.source NOT LIKE '方程式%'))",
                 (group_id, today),
             )
         already = int((sent_today or {}).get("c") or 0)
-        # 每日上限只约束 RSS 突发；动态不计入、不占名额，只受每轮 2 条的限流。
+        # 每日上限只约束 RSS 突发；动态、方程式不计入、不占名额，
+        # 动态只受每轮 2 条的限流，方程式直通不限流。
         rss_budget = _max_breaking_per_day(cfg) - already
         feed_sent_this_cycle = 0
         rss_sent_this_cycle = 0
         for it in breaking:
-            if _is_feed_item(it):
+            # AI 打分：低分（< 4）只进早报，不发快讯，也不占预算/限流名额。
+            # 打分失败（None）按关键词直接发；方程式新闻不打分、直通。
+            if not _is_bwenews_item(it):
+                s = scores.get(it["id"])
+                if s is not None and s < IMPORTANCE_THRESHOLD:
+                    low_score_ids.add(it["id"])
+                    continue
+            if _is_bwenews_item(it):
+                pass
+            elif _is_feed_item(it):
                 # 动态快讯每轮限流：超过 2 条的留到下一轮，不丢。
                 if feed_sent_this_cycle >= MAX_FEED_BREAKING_PER_CYCLE:
                     continue
@@ -487,7 +607,11 @@ async def check_breaking_news(bot: Bot) -> None:
                 logger.warning("突发快讯发送失败 (group=%s): %s", group_id, exc)
     async with get_db() as db:
         for it in fresh:
-            if it["id"] in sent_ids or it["id"] not in all_breaking_ids:
+            if (
+                it["id"] in sent_ids
+                or it["id"] not in all_breaking_ids
+                or it["id"] in low_score_ids
+            ):
                 await db.execute(
                     "UPDATE ai_news_items SET sent_breaking = 1 WHERE id = ?", (it["id"],)
                 )
@@ -513,7 +637,7 @@ async def send_daily_digest(bot: Bot) -> None:
         async with get_db() as db:
             items = await db.fetch(
                 "SELECT * FROM ai_news_items "
-                "WHERE substr(fetched_at, 1, 10) = ? OR substr(published_at, 1, 10) = ? "
+                "WHERE (substr(fetched_at, 1, 10) = ? OR substr(published_at, 1, 10) = ?) AND source NOT LIKE '方程式%' "
                 "ORDER BY id DESC LIMIT 10",
                 (yesterday.isoformat(), yesterday.isoformat()),
             )
@@ -566,7 +690,7 @@ async def send_test_digest(bot: Bot, group_id: int) -> dict:
     async with get_db() as db:
         items = await db.fetch(
             "SELECT * FROM ai_news_items "
-            "WHERE substr(fetched_at, 1, 10) = ? OR substr(published_at, 1, 10) = ? "
+            "WHERE (substr(fetched_at, 1, 10) = ? OR substr(published_at, 1, 10) = ?) AND source NOT LIKE '方程式%' "
             "ORDER BY id DESC LIMIT 10",
             (yesterday.isoformat(), yesterday.isoformat()),
         )
