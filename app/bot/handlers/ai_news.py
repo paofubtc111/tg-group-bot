@@ -9,7 +9,8 @@ AI 新闻：每日早报 + 突发快讯。
 - 突发快讯：三层筛选（学方程式新闻：正则 + AI + 人工，这里人工换成早报兜底）。
   1) 关键词初筛：高信号词 + AI 相关，或模型名 + 事件词；
   2) qwen2.5 打分 1-5，>= 4 才发，1-3 只进早报；Ollama 不通时按关键词直接发；
-  3) 方程式新闻直通：他发什么直接转发（只限 6 小时内的新快讯）。
+  3) 方程式新闻：只发 AI 相关 + 盗窃/黑客类安全事件（只限 6 小时内的新快讯），
+     其余币圈内容（上币/监管/融资/人事）不发；过 filter 的直接转发，不打分。
   每群每天最多 50 条（只算 RSS 突发；动态、方程式不占名额），
   动态每轮每群最多 2 条防刷屏。
 
@@ -415,8 +416,26 @@ def _is_feed_item(item: dict) -> bool:
 
 def _is_bwenews_item(item: dict) -> bool:
     """是否来自方程式新闻：pao 2026-11-13 定，他发什么直接转发，
-    不走关键词/AI 门、不占每日上限。"""
+    不走关键词/AI 门、不占每日上限（内容过滤见 _is_bwenews_wanted）。"""
     return (item.get("source", "") or "").startswith("方程式")
+
+
+# 方程式新闻是加密快讯，pao 2026-11-13 定：不要币圈内容，只发 AI 相关
+# 的，和盗窃/黑客这类安全事件（上币、监管、融资、人事等一律不发）。
+BWENEWS_SECURITY_TERMS = [
+    "盗窃", "被盗", "盗币", "盗取", "窃取",
+    "黑客", "hack", "入侵", "攻击", "breach",
+    "勒索", "ransomware", "查获", "诈骗",
+]
+
+
+def _is_bwenews_wanted(title: str) -> bool:
+    """方程式新闻这条要不要转发：AI 相关，或盗窃/黑客类安全事件才发。
+    其余币圈内容（上币、监管、融资、人事等）不发。"""
+    if _is_ai_related(title):
+        return True
+    lowered = title.lower()
+    return any(kw.lower() in lowered for kw in BWENEWS_SECURITY_TERMS)
 
 
 SCORE_SYSTEM_PROMPT = """你是一名 AI 科技新闻编辑。给下面这条新闻的重要性打分，只输出一个 1-5 的数字，不要输出其他内容。
@@ -495,7 +514,7 @@ async def check_breaking_news(bot: Bot) -> None:
         high, models, events = _breaking_keywords(cfg)
         items = [
             it for it in fresh
-            if _is_bwenews_item(it)
+            if (_is_bwenews_item(it) and _is_bwenews_wanted(it.get("title", "")))
             or _is_breaking(it.get("title", ""), high, models, events)
         ]
         group_breaking[cfg["group_id"]] = items

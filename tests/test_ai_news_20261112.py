@@ -425,17 +425,23 @@ async def test_ai_scoring():
 
 
 async def test_bwenews_bypass():
-    """方程式新闻直通：无关键词也发，不占每日上限；打分不影响它。"""
+    """方程式新闻：只发 AI 相关 + 盗窃/黑客，币圈其他内容不发；过 filter 的直通，不打分。"""
     await fresh_db()
     await ai_news.ensure_default_settings()
     bot = FakeBot()
     now = datetime.now(CST).isoformat(timespec="seconds")
     async with get_db() as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ("方程式新闻", "某交易所上新某某币", "https://example.com/bwe1", now, now),
-        )
+        # AI 相关（英伟达）→ 发；盗窃/黑客 → 发；上币（纯币圈）→ 不发
+        for title, link in [
+            ("英伟达发布新一代 AI 芯片", "https://example.com/bwe-ai"),
+            ("黑客盗走 1 亿美元加密货币", "https://example.com/bwe-hack"),
+            ("某交易所上新某某币", "https://example.com/bwe-list"),
+        ]:
+            await db.execute(
+                "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("方程式新闻", title, link, now, now),
+            )
 
     async def fake_score_low(base_url, model_name, title, summary=""):
         return 1  # 就算打 1 分，方程式也不受影响
@@ -443,8 +449,10 @@ async def test_bwenews_bypass():
     with patch.object(ai_news, "_score_importance", side_effect=fake_score_low):
         await ai_news.check_breaking_news(bot)
     ok = True
-    ok &= check("方程式无关键词也发", len(bot.sent) == 1)
-    ok &= check("方程式内容含标题", bot.sent and "某交易所上新某某币" in bot.sent[0]["text"])
+    ok &= check("方程式 AI 相关的发", any("英伟达" in m["text"] for m in bot.sent))
+    ok &= check("方程式盗窃/黑客的发", any("黑客" in m["text"] for m in bot.sent))
+    ok &= check("方程式纯币圈上币的不发", not any("上新某某币" in m["text"] for m in bot.sent))
+    ok &= check("一共发了 2 条", len(bot.sent) == 2)
     return ok
 
 
