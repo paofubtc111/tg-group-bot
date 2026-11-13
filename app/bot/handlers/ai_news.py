@@ -37,6 +37,10 @@ DEFAULT_GROUP_ID = -1004496842671
 DEFAULT_DAILY_TIME = "09:00"
 
 # RSS 源：(来源名, feed 地址)
+# 每轮循环（5 分钟）每群最多发几条动态快讯。动态是整批入库的，
+# 不限流会一分钟连发 10 条挤爆群聊；没发完的留在库里下一轮再发，不丢。
+MAX_FEED_BREAKING_PER_CYCLE = 2
+
 RSS_FEEDS = [
     ("TechCrunch AI", "https://techcrunch.com/category/artificial-intelligence/feed/"),
     ("The Verge AI", "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"),
@@ -423,6 +427,12 @@ async def check_breaking_news(bot: Bot) -> None:
         return
     today = datetime.now(CST).date().isoformat()
     now_iso = datetime.now(CST).isoformat(timespec="seconds")
+    # 所有群里算出的突发条目 id（并集）；没发完的动态要留在库里下一轮再发，
+    # 所以结尾只把“已发送”或“不是突发”的条目标记为已处理。
+    all_breaking_ids = {
+        it["id"] for items in group_breaking.values() for it in items
+    }
+    sent_ids: set = set()
     for cfg in groups:
         group_id = cfg["group_id"]
         breaking = group_breaking.get(group_id) or []
@@ -438,7 +448,13 @@ async def check_breaking_news(bot: Bot) -> None:
         budget = _max_breaking_per_day(cfg) - already
         if budget <= 0:
             continue
+        feed_sent_this_cycle = 0
         for it in breaking[:budget]:
+            # 动态快讯每轮限流：超过 2 条的留到下一轮，不丢。
+            if _is_feed_item(it):
+                if feed_sent_this_cycle >= MAX_FEED_BREAKING_PER_CYCLE:
+                    continue
+                feed_sent_this_cycle += 1
             title = html.escape(it.get("title", ""), quote=True)
             link = html.escape(it.get("link", ""), quote=True)
             source = html.escape(it.get("source", ""), quote=True)
@@ -450,6 +466,7 @@ async def check_breaking_news(bot: Bot) -> None:
             )
             try:
                 await bot.send_message(chat_id=group_id, text=text, disable_web_page_preview=True)
+                sent_ids.add(it["id"])
                 logger.info("突发快讯已发 (group=%s, link=%s)", group_id, it.get("link", ""))
                 async with get_db() as db:
                     await db.execute(
@@ -461,9 +478,10 @@ async def check_breaking_news(bot: Bot) -> None:
                 logger.warning("突发快讯发送失败 (group=%s): %s", group_id, exc)
     async with get_db() as db:
         for it in fresh:
-            await db.execute(
-                "UPDATE ai_news_items SET sent_breaking = 1 WHERE id = ?", (it["id"],)
-            )
+            if it["id"] in sent_ids or it["id"] not in all_breaking_ids:
+                await db.execute(
+                    "UPDATE ai_news_items SET sent_breaking = 1 WHERE id = ?", (it["id"],)
+                )
 
 
 async def send_daily_digest(bot: Bot) -> None:
@@ -477,7 +495,9 @@ async def send_daily_digest(bot: Bot) -> None:
     for cfg in groups:
         group_id = cfg["group_id"]
         daily_time = (cfg.get("daily_time") or DEFAULT_DAILY_TIME).strip()
-        if daily_time != now.strftime("%H:%M"):
+        # 循环每 5 分钟才跑一轮，不一定正好卡在 daily_time 那一分钟；
+        # 改成“到点后第一次循环就发”，否则那一分钟没轮到就整天漏发。
+        if now.strftime("%H:%M") < daily_time:
             continue
         if (cfg.get("last_digest_date") or "") == today_str:
             continue

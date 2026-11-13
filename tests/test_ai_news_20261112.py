@@ -239,8 +239,15 @@ async def test_breaking_flow():
             "UPDATE ai_news_settings SET max_breaking_per_day = 30 WHERE group_id = ?",
             (GROUP,),
         )
+    before_feed = len(bot.sent)
     await ai_news.check_breaking_news(bot)
-    ok &= check("动态直通突发：无关键词也发", len(bot.sent) == 11 and "今天群里聊点别的" in bot.sent[-1]["text"])
+    ok &= check(
+        "动态直通突发：无关键词也发",
+        len(bot.sent) > before_feed
+        and any("今天群里聊点别的" in m["text"] for m in bot.sent),
+    )
+    # 之前被日限额挡住、没发完的突发条目，现在会留到下一轮补发，而不是悄悄丢掉
+    ok &= check("没发完的突发留到下一轮补发", len(bot.sent) == before_feed + 4)
     return ok
 
 
@@ -279,6 +286,74 @@ async def test_digest_fallback():
     return ok
 
 
+
+async def test_digest_fires_after_time():
+    """早报到点后第一次循环就发：循环每 5 分钟一轮，不一定卡在正点那一分钟。"""
+    await fresh_db()
+    await ai_news.ensure_default_settings()
+    bot = FakeBot()
+    yesterday = (datetime.now(CST).date() - timedelta(days=1)).isoformat()
+    now = datetime.now(CST)
+    past = (now - timedelta(minutes=5)).strftime("%H:%M")
+    future = (now + timedelta(minutes=10)).strftime("%H:%M")
+    async with get_db() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("TechCrunch AI", "Yesterday big AI news", "https://example.com/y1", yesterday, yesterday),
+        )
+    # 时间设在未来：还没到点，不发
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE ai_news_settings SET daily_time = ?, last_digest_date = '' WHERE group_id = ?",
+            (future, GROUP),
+        )
+    await ai_news.send_daily_digest(bot)
+    ok = True
+    ok &= check("没到点不发早报", len(bot.sent) == 0)
+    # 时间设在 5 分钟前：已过点，第一次循环就该发（旧逻辑要求正好卡在那一分钟会漏发）
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE ai_news_settings SET daily_time = ?, last_digest_date = '' WHERE group_id = ?",
+            (past, GROUP),
+        )
+    await ai_news.send_daily_digest(bot)
+    ok &= check("过点后第一次循环就发早报", len(bot.sent) == 1)
+    return ok
+
+
+async def test_feed_breaking_rate_limit():
+    """动态快讯每轮限流：一批 5 条进来，一轮最多发 2 条，剩下的留到下一轮，不丢。"""
+    await fresh_db()
+    await ai_news.ensure_default_settings()
+    bot = FakeBot()
+    now = datetime.now(CST).isoformat(timespec="seconds")
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE ai_news_settings SET max_breaking_per_day = 30 WHERE group_id = ?",
+            (GROUP,),
+        )
+        for i in range(5):
+            await db.execute(
+                "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("Muse动态", f"动态快讯 {i}", f"https://example.com/feedcap{i}", now, now),
+            )
+    await ai_news.check_breaking_news(bot)
+    ok = True
+    ok &= check("动态快讯一轮最多发 2 条", len(bot.sent) == 2)
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT COUNT(*) AS c FROM ai_news_items WHERE source = 'Muse动态' AND sent_breaking = 0"
+        )
+    ok &= check("没发完的动态留在库里", int((row or {}).get("c") or 0) == 3)
+    await ai_news.check_breaking_news(bot)
+    ok &= check("下一轮再发 2 条", len(bot.sent) == 4)
+    await ai_news.check_breaking_news(bot)
+    ok &= check("第三轮发完最后 1 条", len(bot.sent) == 5)
+    return ok
+
+
 async def main():
     results = []
     results.append(await test_schema_and_defaults())
@@ -289,6 +364,8 @@ async def main():
     results.append(await test_fetch_feeds())
     results.append(await test_breaking_flow())
     results.append(await test_digest_fallback())
+    results.append(await test_digest_fires_after_time())
+    results.append(await test_feed_breaking_rate_limit())
     total = sum(1 for r in results if r)
     print(f"\n{total}/{len(results)} 组测试通过")
     await close_db()
