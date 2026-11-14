@@ -6,12 +6,14 @@ AI 新闻：每日早报 + 突发快讯。
 - 每日早报：每天指定时间（默认 09:00），把昨天的新新闻交给 qwen2.5
 翻译+摘要成中文早报发到群里；Ollama 不通时降级为标题+链接清单。
 方程式新闻是加密快讯，不进 AI 早报。
-- 突发快讯：三层筛选（学方程式新闻：正则 + AI + 人工，这里人工换成早报兜底）。
+- 突发快讯：RSS 三层筛选（学方程式新闻：正则 + AI + 人工，这里人工换成早报兜底）。
   1) 关键词初筛：高信号词 + AI 相关，或模型名 + 事件词；
   2) qwen2.5 打分 1-5，>= 4 才发，1-3 只进早报；Ollama 不通时按关键词直接发；
   英文标题发送前由 qwen2.5 译成中文（Ollama 不通时发原文）；
   3) 方程式新闻：只发 AI 相关 + 盗窃/黑客类安全事件（只限 6 小时内的新快讯），
      其余币圈内容（上币/监管/融资/人事）不发；过 filter 的直接转发，不打分。
+  Muse 动态直接发突发，不用关键词、不用打分（pao 2026-11-14：动态是 Muse
+  已按兴趣筛过的，再走门会把 Nex 这类新模型拦掉）。
   每群每天最多 50 条（只算 RSS 突发；动态、方程式不占名额），
   动态每轮每群最多 2 条防刷屏。
 
@@ -413,7 +415,8 @@ def _max_breaking_per_day(cfg: dict) -> int:
 
 def _is_feed_item(item: dict) -> bool:
     """是否来自 Muse 动态：不计入每日上限、每轮限流 2 条。
-    （2026-11-13 改：动态不再直通突发，改走关键词 + AI 打分，和 RSS 同一套门。）"""
+    （2026-11-14 pao：动态直接发突发，不用关键词、不用打分——
+    动态是 Muse 已按兴趣筛过的，再走门会把 Nex 这类新模型拦掉。）"""
     return (item.get("source", "") or "").startswith("Muse")
 
 
@@ -535,7 +538,8 @@ def _is_breaking(title: str, high=None, models=None, events=None, ai_terms=None)
 
 
 async def check_breaking_news(bot: Bot) -> None:
-    """把新入库且命中突发关键词的文章发出去（标题+来源+链接）。
+    """把新入库的突发文章发出去（标题+来源+链接）：
+    RSS 走关键词 + AI 打分，动态跳过关键词、直接打分。
     英文标题先经 qwen2.5 译成中文再发；Ollama 不通时发原文，快讯不断。"""
     groups = await get_enabled_groups("breaking")
     if not groups:
@@ -547,8 +551,9 @@ async def check_breaking_news(bot: Bot) -> None:
     if not fresh:
         return
     # 每群用自己的关键词算突发（没配就用默认词）。
-    # 动态不再直通（2026-11-13 pao：量太大，改走关键词 + AI 打分）；
-    # 方程式新闻直通（pao：他发什么直接转发）。
+    # 动态直接发（pao 2026-11-14：不用关键词、不用打分——动态是 Muse
+    # 已筛过的，再走门会把 Nex 这类新模型拦掉）；方程式新闻直通
+    # （pao：他发什么直接转发）。
     group_breaking = {}
     any_breaking = False
     for cfg in groups:
@@ -556,6 +561,7 @@ async def check_breaking_news(bot: Bot) -> None:
         items = [
             it for it in fresh
             if (_is_bwenews_item(it) and _is_bwenews_wanted(it.get("title", "")))
+            or _is_feed_item(it)
             or _is_breaking(it.get("title", ""), high, models, events)
         ]
         group_breaking[cfg["group_id"]] = items
@@ -568,12 +574,13 @@ async def check_breaking_news(bot: Bot) -> None:
                     "UPDATE ai_news_items SET sent_breaking = 1 WHERE id = ?", (it["id"],)
                 )
         return
-    # AI 打分（C）：给过关键词的候选条目打分，低分只进早报不发快讯。
-    # 方程式新闻不打分（直通）。Ollama 不可用时整轮跳过打分、按关键词直接发，
-    # 保证快讯不断；熔断后本轮剩余条目不再调 Ollama，避免一次卡 20 秒。
+    # AI 打分（C）：给候选条目打分，低分只进早报不发快讯。
+    # 动态、方程式不打分（直通，pao 2026-11-14：动态直接发）。
+    # Ollama 不可用时整轮跳过打分、按关键词直接发，保证快讯不断；
+    # 熔断后本轮剩余条目不再调 Ollama，避免一次卡 20 秒。
     candidate_ids = {
         it["id"] for items in group_breaking.values() for it in items
-        if not _is_bwenews_item(it)
+        if not _is_bwenews_item(it) and not _is_feed_item(it)
     }
     # 各群共用第一群的 Ollama 配置（打分和翻译都走它）。
     base_url, model_name = await get_group_llm(groups[0]["group_id"])
@@ -632,8 +639,8 @@ async def check_breaking_news(bot: Bot) -> None:
         rss_sent_this_cycle = 0
         for it in breaking:
             # AI 打分：低分（< 4）只进早报，不发快讯，也不占预算/限流名额。
-            # 打分失败（None）按关键词直接发；方程式新闻不打分、直通。
-            if not _is_bwenews_item(it):
+            # 打分失败（None）按关键词直接发；方程式、动态不打分、直通。
+            if not _is_bwenews_item(it) and not _is_feed_item(it):
                 s = scores.get(it["id"])
                 if s is not None and s < IMPORTANCE_THRESHOLD:
                     low_score_ids.add(it["id"])

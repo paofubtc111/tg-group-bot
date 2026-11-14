@@ -235,9 +235,9 @@ async def test_breaking_flow():
         for _ in range(4):
             await ai_news.check_breaking_news(bot)
     ok &= check("日限额：全天最多 50 条突发", len(bot.sent) == 50)
-    # 动态不再直通（2026-11-13 pao：量太大，改走关键词 + AI 打分）：
-    # 带关键词的动态（GPT-5 发布）照样发突发；无关键词的闲聊只进早报，不发。
-    # 打分 mock 成 None（Ollama 不通 → 按关键词直接发），聚焦关键词门。
+    # 动态直接发（2026-11-14 pao：不用关键词、不用打分）：
+    # 带关键词的动态（GPT-5 发布）和无关键词的闲聊都直接发突发；
+    # 打分 mock 成 None 也不影响，动态根本不打分。
     async with get_db() as db:
         await db.execute(
             "INSERT OR IGNORE INTO ai_news_items (source, title, link, published_at, fetched_at) "
@@ -253,14 +253,14 @@ async def test_breaking_flow():
     with patch.object(ai_news, "_score_importance", return_value=None):
         await ai_news.check_breaking_news(bot)
     ok &= check(
-        "动态走关键词门：带关键词的发",
+        "动态直接发：带关键词的发",
         len(bot.sent) > before_feed
         and any("GPT-5 正式发布" in m["text"] for m in bot.sent),
     )
-    ok &= check("动态不计入每日上限：RSS 预算用完照样发", len(bot.sent) == before_feed + 1)
+    ok &= check("动态不计入每日上限：RSS 预算用完照样发", len(bot.sent) == before_feed + 2)
     ok &= check(
-        "动态无关键词的不发突发",
-        not any("今天群里聊点别的" in m["text"] for m in bot.sent),
+        "动态无关键词的也直接发",
+        any("今天群里聊点别的" in m["text"] for m in bot.sent),
     )
     # 被日限额挡住没发完的 RSS 突发留到下一轮，不悄悄丢掉
     async with get_db() as db:
