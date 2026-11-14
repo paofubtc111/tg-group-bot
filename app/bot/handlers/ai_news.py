@@ -9,6 +9,7 @@ AI 新闻：每日早报 + 突发快讯。
 - 突发快讯：三层筛选（学方程式新闻：正则 + AI + 人工，这里人工换成早报兜底）。
   1) 关键词初筛：高信号词 + AI 相关，或模型名 + 事件词；
   2) qwen2.5 打分 1-5，>= 4 才发，1-3 只进早报；Ollama 不通时按关键词直接发；
+  英文标题发送前由 qwen2.5 译成中文（Ollama 不通时发原文）；
   3) 方程式新闻：只发 AI 相关 + 盗窃/黑客类安全事件（只限 6 小时内的新快讯），
      其余币圈内容（上币/监管/融资/人事）不发；过 filter 的直接转发，不打分。
   每群每天最多 50 条（只算 RSS 突发；动态、方程式不占名额），
@@ -54,6 +55,8 @@ BWENEWS_MAX_AGE_HOURS = 6
 IMPORTANCE_THRESHOLD = 4
 # 打分单次超时（秒）：Ollama 在 pao 电脑上，断了不能让快讯循环卡 60 秒。
 SCORE_TIMEOUT_SECONDS = 20
+# 英文标题翻译单次超时（秒）：和打分一样，Ollama 断了不能卡住快讯。
+TRANSLATE_TIMEOUT_SECONDS = 20
 
 RSS_FEEDS = [
     ("TechCrunch AI", "https://techcrunch.com/category/artificial-intelligence/feed/"),
@@ -474,6 +477,43 @@ async def _score_importance(base_url: str, model_name: str, title: str, summary:
     return int(m.group(0)) if m else None
 
 
+TRANSLATE_SYSTEM_PROMPT = """你是一名 AI 科技新闻编辑。把下面的英文新闻标题翻译成简洁中文，只输出译文，不要输出其他内容。
+
+要求：
+- 模型名、公司名、产品名保留英文（如 GPT-5、Claude、Gemini、OpenAI、NVIDIA）；
+- 译文控制在 30 字以内；
+- 只输出译文。"""
+
+
+def _is_english_title(title: str) -> bool:
+    """标题是否全是英文（不含中文字符）：是则快讯发送前要翻译。"""
+    if not title or not title.strip():
+        return False
+    return re.search(r"[\u4e00-\u9fff]", title) is None
+
+
+async def _translate_title(base_url: str, model_name: str, title: str) -> str | None:
+    """用 Ollama 把英文标题译成中文；失败/超时返回 None，调用方用原文。"""
+    try:
+        content = await asyncio.wait_for(
+            query_ollama_chat(
+                base_url=base_url,
+                model_name=model_name,
+                system_prompt=TRANSLATE_SYSTEM_PROMPT,
+                history=[],
+                user_prompt=f"标题：{title}",
+            ),
+            timeout=TRANSLATE_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning("标题翻译失败（%s）：%s", title[:30], exc)
+        return None
+    if not content:
+        return None
+    translated = content.strip().splitlines()[0].strip().strip("\"'「」")
+    return translated or None
+
+
 def _is_ai_related(title: str, ai_terms=None) -> bool:
     """标题是否和 AI 相关（模型名、AI 概念、AI 公司/芯片）。"""
     lowered = title.lower()
@@ -495,7 +535,8 @@ def _is_breaking(title: str, high=None, models=None, events=None, ai_terms=None)
 
 
 async def check_breaking_news(bot: Bot) -> None:
-    """把新入库且命中突发关键词的文章发出去（标题+来源+链接，不走 LLM）。"""
+    """把新入库且命中突发关键词的文章发出去（标题+来源+链接）。
+    英文标题先经 qwen2.5 译成中文再发；Ollama 不通时发原文，快讯不断。"""
     groups = await get_enabled_groups("breaking")
     if not groups:
         return
@@ -534,9 +575,10 @@ async def check_breaking_news(bot: Bot) -> None:
         it["id"] for items in group_breaking.values() for it in items
         if not _is_bwenews_item(it)
     }
+    # 各群共用第一群的 Ollama 配置（打分和翻译都走它）。
+    base_url, model_name = await get_group_llm(groups[0]["group_id"])
     scores: dict = {}
     if candidate_ids:
-        base_url, model_name = await get_group_llm(groups[0]["group_id"])
         ollama_ok = True
         by_id = {it["id"]: it for it in fresh}
         for item_id in sorted(candidate_ids):
@@ -561,6 +603,10 @@ async def check_breaking_news(bot: Bot) -> None:
     }
     sent_ids: set = set()
     low_score_ids: set = set()
+    # 英文标题翻译（pao 2026-11-14：英文快讯要翻成中文）：每条只译一次，
+    # 各群共用译文；首次翻译失败后本轮不再调 Ollama、直接发原文。
+    translated_titles: dict = {}
+    translate_ok = True
     for cfg in groups:
         group_id = cfg["group_id"]
         breaking = group_breaking.get(group_id) or []
@@ -603,7 +649,22 @@ async def check_breaking_news(bot: Bot) -> None:
                 if rss_sent_this_cycle >= rss_budget:
                     continue
                 rss_sent_this_cycle += 1
-            title = html.escape(it.get("title", ""), quote=True)
+            # 英文标题先翻译：已译过的直接取缓存；翻译失败本轮不再试，发原文。
+            raw_title = it.get("title", "")
+            if it["id"] in translated_titles:
+                title = translated_titles[it["id"]]
+            elif _is_english_title(raw_title) and translate_ok:
+                translated = await _translate_title(base_url, model_name, raw_title)
+                if translated:
+                    title = translated
+                else:
+                    translate_ok = False
+                    title = raw_title
+                translated_titles[it["id"]] = title
+            else:
+                title = raw_title
+                translated_titles[it["id"]] = title
+            title = html.escape(title, quote=True)
             link = html.escape(it.get("link", ""), quote=True)
             source = html.escape(it.get("source", ""), quote=True)
             text = (
