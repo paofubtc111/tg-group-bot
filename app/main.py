@@ -15,7 +15,7 @@ from app.api.routes import api_router
 from app.bot.handlers import setup_bot_routers
 from app.bot.handlers.captcha import recover_pending_verifications
 from app.bot.handlers.ai_news import ai_news_loop
-from app.bot.handlers.group_features import rename_watch_loop, scheduled_sender_loop
+from app.bot.handlers.group_features import scheduled_sender_loop
 from app.bot.middlewares.group_tracker import GroupTrackerMiddleware
 from app.config import settings
 from app.database.db import close_db, init_db
@@ -54,7 +54,6 @@ async def lifespan(app: FastAPI):
 
     polling_task: Optional[asyncio.Task] = None
     scheduler_task: Optional[asyncio.Task] = None
-    rename_watch_task: Optional[asyncio.Task] = None
     ai_news_task: Optional[asyncio.Task] = None
     if bot is not None:
         try:
@@ -81,8 +80,10 @@ async def lifespan(app: FastAPI):
         # 定时发送后台任务 (仅 Bot 在线时启动, 预览模式跳过)
         scheduler_task = asyncio.create_task(scheduled_sender_loop(bot))
 
-        # 改名定时巡查后台任务 (仅 Bot 在线时启动, 预览模式跳过)
-        rename_watch_task = asyncio.create_task(rename_watch_loop(bot))
+        # 改名监控只保留发言即时检查（GroupTrackerMiddleware 里在更新档案前
+        # 调 check_rename_watch_with_bot）；定时巡查已按 pao 2026-11-16 要求
+        # 关闭，不再启动 rename_watch_loop（函数保留在 group_features.py，
+        # 想恢复时在这里重新 create_task 即可）。
 
         # AI 新闻后台任务：RSS 拉取 + 突发快讯 + 每日早报 (仅 Bot 在线时启动)
         ai_news_task = asyncio.create_task(ai_news_loop(bot))
@@ -94,10 +95,6 @@ async def lifespan(app: FastAPI):
             ai_news_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await ai_news_task
-        if rename_watch_task and not rename_watch_task.done():
-            rename_watch_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await rename_watch_task
         if scheduler_task and not scheduler_task.done():
             scheduler_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
