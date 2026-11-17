@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS group_settings (
     is_active INTEGER DEFAULT 1,
     added_by_user_id BIGINT,
     added_by_username TEXT,
+    store_chat_data INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );

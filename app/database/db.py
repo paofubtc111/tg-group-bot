@@ -547,6 +547,7 @@ async def get_db() -> AsyncIterator[Any]:
 _NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("group_settings", "added_by_user_id", "BIGINT DEFAULT NULL"),
     ("group_settings", "added_by_username", "TEXT DEFAULT NULL"),
+    ("group_settings", "store_chat_data", "INTEGER DEFAULT 0"),
     ("lockdown_keywords", "allow_admin_trigger", "INTEGER DEFAULT 0"),
     ("group_moderation_settings", "moderate_admins", "INTEGER DEFAULT 0"),
     ("ai_news_items", "summary", "TEXT DEFAULT ''"),

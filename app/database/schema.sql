@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS group_settings (
     is_active BOOLEAN DEFAULT TRUE,
     added_by_user_id BIGINT,
     added_by_username TEXT,
+    store_chat_data BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

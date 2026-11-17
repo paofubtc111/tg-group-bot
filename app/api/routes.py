@@ -1029,8 +1029,8 @@ async def api_admin_groups(request: Request) -> dict:
     async with get_db() as db:
         rows = await db.fetch(
             "SELECT group_id, group_title, is_active, added_by_user_id, "
-            "added_by_username, created_at, updated_at FROM group_settings "
-            "ORDER BY group_id"
+            "added_by_username, store_chat_data, created_at, updated_at "
+            "FROM group_settings ORDER BY group_id"
         )
     groups = []
     for row in rows:
@@ -1043,11 +1043,118 @@ async def api_admin_groups(request: Request) -> dict:
                 "is_active": bool(row["is_active"]),
                 "added_by_user_id": row.get("added_by_user_id"),
                 "added_by_username": row.get("added_by_username"),
+                "store_chat_data": bool(row.get("store_chat_data")),
                 "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
                 "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
             }
         )
     return {"status": "ok", "groups": groups}
+
+
+def _require_admin_token(request: Request) -> None:
+    """后台管理接口共用鉴权: X-Admin-Token 对 ADMIN_SYNC_TOKEN。
+    未配置 503、无/错 token 401, 与 GET /api/admin/groups 语义一致。"""
+    token = settings.ADMIN_SYNC_TOKEN
+    if not token:
+        raise HTTPException(status_code=503, detail="未配置 ADMIN_SYNC_TOKEN")
+    got = request.headers.get("X-Admin-Token", "")
+    if not got or got != token:
+        raise HTTPException(status_code=401, detail="token 不正确")
+
+
+class StoreChatDataPayload(BaseModel):
+    enabled: bool
+
+
+@api_router.post("/api/admin/groups/{group_id}/store-chat-data")
+async def api_admin_set_store_chat_data(
+    group_id: int, payload: StoreChatDataPayload, request: Request
+) -> dict:
+    """设置某群的"储存群数据"开关 (v2.2 起开关做真, 控制消息归档)。
+    关闭时同时清空该群已存档的 group_messages, 并返回删除条数。
+    群不存在返回 404。"""
+    _require_admin_token(request)
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT group_id FROM group_settings WHERE group_id = ?",
+            (group_id,),
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="群不存在")
+
+    deleted_messages = 0
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE group_settings SET store_chat_data = ?, "
+            "updated_at = CURRENT_TIMESTAMP WHERE group_id = ?",
+            (1 if payload.enabled else 0, group_id),
+        )
+        if not payload.enabled:
+            cnt_row = await db.fetchrow(
+                "SELECT COUNT(*) AS cnt FROM group_messages WHERE group_id = ?",
+                (group_id,),
+            )
+            deleted_messages = int(cnt_row["cnt"]) if cnt_row else 0
+            if deleted_messages:
+                await db.execute(
+                    "DELETE FROM group_messages WHERE group_id = ?",
+                    (group_id,),
+                )
+    return {
+        "status": "ok",
+        "group_id": group_id,
+        "store_chat_data": bool(payload.enabled),
+        "deleted_messages": deleted_messages,
+    }
+
+
+@api_router.get("/api/admin/groups/{group_id}/messages")
+async def api_admin_group_messages(
+    group_id: int, request: Request, limit: int = 50, offset: int = 0
+) -> dict:
+    """查看某群已存档的消息 (后台信息页用), 按 id 倒序 (最新在前)。
+    limit 夹在 1..200, offset 不小于 0。群不存在返回 404。"""
+    _require_admin_token(request)
+    limit = max(1, min(200, limit))
+    offset = max(0, offset)
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT group_id FROM group_settings WHERE group_id = ?",
+            (group_id,),
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="群不存在")
+        total_row = await db.fetchrow(
+            "SELECT COUNT(*) AS cnt FROM group_messages WHERE group_id = ?",
+            (group_id,),
+        )
+        rows = await db.fetch(
+            "SELECT id, message_id, user_id, username, text, created_at "
+            "FROM group_messages WHERE group_id = ? "
+            "ORDER BY id DESC LIMIT ? OFFSET ?",
+            (group_id, limit, offset),
+        )
+    messages = []
+    for r in rows:
+        created_at = r.get("created_at")
+        messages.append(
+            {
+                "id": r["id"],
+                "message_id": r["message_id"],
+                "user_id": r["user_id"],
+                "username": r.get("username") or "",
+                "text": r.get("text") or "",
+                "created_at": created_at.isoformat()
+                if hasattr(created_at, "isoformat")
+                else created_at,
+            }
+        )
+    return {
+        "status": "ok",
+        "group_id": group_id,
+        "total": int(total_row["cnt"]) if total_row else 0,
+        "messages": messages,
+    }
 
 
 # ==================== 7. 紧急模式与权限 / 操作日志 / 导入导出 ====================

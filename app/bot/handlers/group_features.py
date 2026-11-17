@@ -110,11 +110,22 @@ async def track_member_seen(chat_id: int, user: types.User) -> None:
 async def log_group_message(
     chat_id: int, message_id: int, user: types.User, text: str
 ) -> None:
-    """归档群文本消息, 每群仅保留最新 500 条。"""
+    """归档群文本消息, 每群仅保留最新 500 条。
+
+    v2.2 起受 group_settings.store_chat_data 开关控制: 该群未开启储存
+    (含查不到群行) 时直接跳过, 不写 group_messages。成员档案与发言
+    计数 (track_member_message) 不受此开关影响。
+    """
     if user is None:
         return
     try:
         async with get_db() as db:
+            setting = await db.fetchrow(
+                "SELECT store_chat_data FROM group_settings WHERE group_id = ?",
+                (chat_id,),
+            )
+            if not setting or not setting.get("store_chat_data"):
+                return
             await db.execute(
                 """
                 INSERT INTO group_messages (group_id, message_id, user_id, username, text)
