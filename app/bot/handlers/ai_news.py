@@ -161,6 +161,21 @@ def _clean_summary(raw: str, limit: int = 300) -> str:
     return text[:limit]
 
 
+def _sanitize_telegram_html(text: str) -> str:
+    """早报正文过 Telegram HTML：<br> 转行，其余非允许标签去掉，<b> 和 <a> 保留。
+
+    2026-11-23 09:03 早报首次发送失败：Ollama 摘要里混进 <br>，Telegram HTML 不认，
+    报错 can't parse entities: Unsupported start tag "br"。_clean_summary 只洗 RSS
+    摘要，洗不到 LLM 输出，所以发送前必须再洗一次。"""
+    if not text:
+        return text
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    allowed = {"b", "i", "u", "s", "a", "code", "pre", "blockquote", "spoiler", "tg-spoiler"}
+    def _repl(m):
+        return m.group(0) if m.group(1).lower() in allowed else ""
+    return re.sub(r"</?([a-zA-Z0-9-]+)(?:\s[^>]*)?>", _repl, text)
+
+
 def _entry_date(entry) -> str:
     """发布时间统一成 YYYY-MM-DD（feed 的 published 字符串格式各不相同，
     有的 "Thu, 12 Nov 2026 ..."、有的 ISO，直接存原串会导致早报按日期
@@ -749,6 +764,7 @@ async def send_daily_digest(bot: Bot) -> None:
         if not digest:
             digest = build_fallback_digest(date_label, items)
             logger.warning("早报 LLM 摘要失败 (group=%s)，已降级为标题清单", group_id)
+        digest = _sanitize_telegram_html(digest)
         try:
             await bot.send_message(chat_id=group_id, text=digest, disable_web_page_preview=True)
             logger.info("每日早报已发 (group=%s, %s 条新闻)", group_id, len(items))
@@ -798,6 +814,7 @@ async def send_test_digest(bot: Bot, group_id: int) -> dict:
         digest = build_fallback_digest(date_label, items)
         used_fallback = True
         logger.warning("测试早报 LLM 摘要失败 (group=%s)，已降级为标题清单", group_id)
+    digest = _sanitize_telegram_html(digest)
     try:
         await bot.send_message(chat_id=group_id, text=digest, disable_web_page_preview=True)
         logger.info("测试早报已发 (group=%s, %s 条新闻)", group_id, len(items))
