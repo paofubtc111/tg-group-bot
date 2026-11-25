@@ -176,6 +176,57 @@ def _sanitize_telegram_html(text: str) -> str:
     return re.sub(r"</?([a-zA-Z0-9-]+)(?:\s[^>]*)?>", _repl, text)
 
 
+DIGEST_MIN_CHINESE_RATIO = 0.3
+DIGEST_RETRY_SYSTEM_SUFFIX = "\n注意：全文必须用中文写，不要输出英文句子。"
+
+
+def _chinese_ratio(text: str) -> float:
+    """摘要里中文字符占中英文字母的比例：先去掉 HTML 标签和链接再统计。
+
+    2026-11-25 09:00 早报是完整摘要版，但 qwen2.5:7b 没听提示词的中文要求，
+    输出了英文摘要。英文标题、模型名、链接里有英文是正常的，所以只看
+    中文字符 /（中文字符 + 英文字母）：正常中文早报远高于 0.3，纯英文摘要接近 0。"""
+    if not text:
+        return 0.0
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"https?://\S+", " ", text)
+    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+    latin = sum(1 for ch in text if "a" <= ch.lower() <= "z")
+    total = cjk + latin
+    return (cjk / total) if total else 0.0
+
+
+async def _generate_digest_with_language_guard(
+    base_url: str, model_name: str, system_prompt: str, user_prompt: str, group_id: int
+) -> str | None:
+    """生成早报摘要，带中文保险：中文占比过低就再生成一次。
+
+    第二次在 system prompt 末尾追加强制中文提醒；两次都不达标就发中文占比
+    更高的一版（总比不发强），并记一条 warning。"""
+    digest = await query_ollama_chat(
+        base_url=base_url,
+        model_name=model_name,
+        system_prompt=system_prompt,
+        history=[],
+        user_prompt=user_prompt,
+    )
+    if digest and _chinese_ratio(digest) < DIGEST_MIN_CHINESE_RATIO:
+        logger.warning("早报摘要中文占比过低 (group=%s)，重生成一次", group_id)
+        retry = await query_ollama_chat(
+            base_url=base_url,
+            model_name=model_name,
+            system_prompt=system_prompt + DIGEST_RETRY_SYSTEM_SUFFIX,
+            history=[],
+            user_prompt=user_prompt,
+        )
+        if retry:
+            if _chinese_ratio(retry) >= _chinese_ratio(digest):
+                digest = retry
+            else:
+                logger.warning("早报重生成后中文占比仍低 (group=%s)，发占比更高的一版", group_id)
+    return digest
+
+
 def _entry_date(entry) -> str:
     """发布时间统一成 YYYY-MM-DD（feed 的 published 字符串格式各不相同，
     有的 "Thu, 12 Nov 2026 ..."、有的 ISO，直接存原串会导致早报按日期
@@ -754,12 +805,8 @@ async def send_daily_digest(bot: Bot) -> None:
         base_url, model_name = await get_group_llm(group_id)
         system_prompt = DIGEST_SYSTEM_PROMPT.replace("{date}", date_label)
         user_prompt = build_digest_user_prompt(date_label, items)
-        digest = await query_ollama_chat(
-            base_url=base_url,
-            model_name=model_name,
-            system_prompt=system_prompt,
-            history=[],
-            user_prompt=user_prompt,
+        digest = await _generate_digest_with_language_guard(
+            base_url, model_name, system_prompt, user_prompt, group_id
         )
         if not digest:
             digest = build_fallback_digest(date_label, items)
@@ -802,12 +849,8 @@ async def send_test_digest(bot: Bot, group_id: int) -> dict:
     base_url, model_name = await get_group_llm(group_id)
     system_prompt = DIGEST_SYSTEM_PROMPT.replace("{date}", date_label)
     user_prompt = build_digest_user_prompt(date_label, items)
-    digest = await query_ollama_chat(
-        base_url=base_url,
-        model_name=model_name,
-        system_prompt=system_prompt,
-        history=[],
-        user_prompt=user_prompt,
+    digest = await _generate_digest_with_language_guard(
+        base_url, model_name, system_prompt, user_prompt, group_id
     )
     used_fallback = False
     if not digest:
