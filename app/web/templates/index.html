@@ -3152,9 +3152,8 @@
         if (banner) { banner.classList.add('hidden'); banner.textContent = ''; }
         return;
       }
-      const uid = (appState.currentUser && appState.currentUser.id) || '未知';
       const msg = reason === 'global'
-        ? `⛔ 该模板不可编辑：全局模板只有超级管理员（主号 8449446199）能改，你当前账号是 ${uid}。想用自己的欢迎语就点右上角“+ 新建空白模板”。`
+        ? '⛔ 该模板不可编辑：全局模板只有超级管理员能改，想用自己的欢迎语就点右上角“+ 新建空白模板”。'
         : '⛔ 该模板不可编辑：这是别人的模板，只有本人能改。';
       if (note) { note.classList.remove('hidden'); note.textContent = msg; }
       if (banner) { banner.classList.remove('hidden'); banner.textContent = msg; }
