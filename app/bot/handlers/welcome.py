@@ -64,7 +64,13 @@ async def trigger_welcome(bot: Bot, chat_id: int, user: User) -> None:
                 for row in btn_rows:
                     if isinstance(row, list):
                         kb_row = [
-                            InlineKeyboardButton(text=str(b["text"]), url=str(b["url"]))
+                            InlineKeyboardButton(
+                                text=str(b["text"]),
+                                url=str(b["url"]),
+                                style=b.get("style")
+                                if b.get("style") in ("danger", "success", "primary")
+                                else None,
+                            )
                             for b in row
                             if isinstance(b, dict) and b.get("text") and b.get("url")
                         ]

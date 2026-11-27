@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 api_router = APIRouter()
 
 
+# 超级管理员白名单：只有这些 Telegram user_id 能编辑系统全局模板
+# (message_templates 里 group_id 为 NULL 的那一行)。pao 在此添加更多 ID。
+SUPER_ADMIN_IDS = {8449446199}
+
+
 # ==================== Pydantic 请求模型定义 ====================
 
 
@@ -40,6 +45,9 @@ class CaptchaConfigPayload(BaseModel):
 class ButtonItem(BaseModel):
     text: str
     url: str
+    style: Optional[str] = Field(default=None, pattern="^(danger|success|primary)$")
+    # danger=红 success=绿 primary=蓝；不填=默认色。非法值保存时直接 422，
+    # 这样面板里写错颜色能立刻发现，不会静默丢掉。
 
 
 class TemplatePayload(BaseModel):
@@ -480,6 +488,30 @@ async def api_save_captcha(
 
 
 # ==================== 3. 独立消息模板库 ====================
+# 模板归属模型（2026-11-27 中档隔离：按管理员 user_id 隔离，仅模板表）：
+# - 全局模板 (group_id 为 NULL, owner 为 NULL)：所有人可见，只有超级管理员能改。
+# - 群专属模板 (group_id 有值)：owner_user_id = U 时只对 U 可见可改；
+#   owner 为 NULL 的旧模板（隔离上线前建的）保持老行为：本群任何管理员可见可改。
+
+
+def _template_visible_to(row: dict, group_id: int, user_id: int) -> bool:
+    """当前用户能不能在列表里看到这行模板。"""
+    if row.get("group_id") is None:
+        return True
+    if row.get("group_id") != group_id:
+        return False
+    owner = row.get("owner_user_id")
+    return owner is None or owner == user_id
+
+
+def _template_editable_by(row: dict, group_id: int, user_id: int) -> bool:
+    """当前用户能不能改这行模板。"""
+    if row.get("group_id") is None:
+        return user_id in SUPER_ADMIN_IDS
+    if row.get("group_id") != group_id:
+        return False
+    owner = row.get("owner_user_id")
+    return owner is None or owner == user_id
 
 
 @api_router.get("/api/group/{group_id}/templates")
@@ -488,6 +520,7 @@ async def api_get_templates(
 ) -> dict:
     await require_group_admin(request, group_id, user)
     await ensure_group_initialized(group_id)
+    uid = int(user["id"])
 
     async with get_db() as db:
         rows = await db.fetch(
@@ -498,12 +531,17 @@ async def api_get_templates(
             """,
             (group_id,),
         )
+    templates = []
     for r in rows:
+        if not _template_visible_to(r, group_id, uid):
+            continue
+        r["editable"] = _template_editable_by(r, group_id, uid)
         try:
             r["buttons"] = json.loads(r.get("buttons_json") or "[]")
         except Exception:
             r["buttons"] = []
-    return {"templates": rows}
+        templates.append(r)
+    return {"templates": templates}
 
 
 @api_router.post("/api/group/{group_id}/templates")
@@ -515,6 +553,7 @@ async def api_save_template(
 ) -> dict:
     await require_group_admin(request, group_id, user)
     await ensure_group_initialized(group_id)
+    uid = int(user["id"])
 
     buttons_json = json.dumps(
         [[b.model_dump() for b in row] for row in payload.buttons],
@@ -523,7 +562,16 @@ async def api_save_template(
 
     async with get_db() as db:
         if payload.template_id:
-            await db.execute(
+            row = await db.fetchrow(
+                "SELECT template_id, group_id, owner_user_id FROM message_templates WHERE template_id = ?",
+                (payload.template_id,),
+            )
+            if not row or not _template_editable_by(row, group_id, uid):
+                raise HTTPException(
+                    status_code=403,
+                    detail="无权修改此模板：全局模板只有超级管理员能改，他人的模板只有本人能改",
+                )
+            affected = await db.execute(
                 """
                 UPDATE message_templates
                 SET template_name = ?, media_type = ?, media_source = ?, content = ?, buttons_json = ?
@@ -539,16 +587,22 @@ async def api_save_template(
                     group_id,
                 ),
             )
+            if not affected:
+                raise HTTPException(
+                    status_code=403,
+                    detail="无权修改此模板",
+                )
             tid = payload.template_id
             action_label = "更新消息模板"
         else:
             tid = await db.execute(
                 """
-                INSERT INTO message_templates (group_id, template_name, media_type, media_source, content, buttons_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO message_templates (group_id, owner_user_id, template_name, media_type, media_source, content, buttons_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     group_id,
+                    uid,
                     payload.template_name,
                     payload.media_type,
                     payload.media_source or "",
@@ -580,11 +634,32 @@ async def api_delete_template(
     user: dict = Depends(get_current_user),
 ) -> dict:
     await require_group_admin(request, group_id, user)
+    uid = int(user["id"])
     async with get_db() as db:
-        await db.execute(
+        row = await db.fetchrow(
+            "SELECT template_id, group_id, owner_user_id FROM message_templates WHERE template_id = ?",
+            (tid,),
+        )
+        if not row or row.get("group_id") is None or row.get("group_id") != group_id:
+            raise HTTPException(
+                status_code=403,
+                detail="无权删除此模板：全局模板不可删除，他人的模板只有本人能删",
+            )
+        owner = row.get("owner_user_id")
+        if owner is not None and owner != uid:
+            raise HTTPException(
+                status_code=403,
+                detail="无权删除此模板：他人的模板只有本人能删",
+            )
+        affected = await db.execute(
             "DELETE FROM message_templates WHERE template_id = ? AND group_id = ?",
             (tid, group_id),
         )
+        if not affected:
+            raise HTTPException(
+                status_code=403,
+                detail="无权删除此模板",
+            )
     await record_audit_log(
         group_id,
         int(user["id"]),
@@ -621,8 +696,21 @@ async def api_save_welcome(
 ) -> dict:
     await require_group_admin(request, group_id, user)
     await ensure_group_initialized(group_id)
+    uid = int(user["id"])
 
     async with get_db() as db:
+        # 激活的模板必须是设置者可见的：全局 / 自己的 / 本群旧模板；
+        # 看不见别人的模板，就不能把它设为本群欢迎语。
+        if payload.active_template_id is not None:
+            row = await db.fetchrow(
+                "SELECT template_id, group_id, owner_user_id FROM message_templates WHERE template_id = ?",
+                (payload.active_template_id,),
+            )
+            if not row or not _template_visible_to(row, group_id, uid):
+                raise HTTPException(
+                    status_code=403,
+                    detail="无权使用此模板：它属于其他管理员",
+                )
         await db.execute(
             """
             UPDATE group_welcome_settings
@@ -1265,7 +1353,7 @@ async def api_export_group_config(
         active_tpl_id = welcome["active_template_id"] if welcome else None
         tpl_rows = await db.fetch(
             """
-            SELECT template_id, template_name, media_type, media_source, content, buttons_json
+            SELECT template_id, group_id, owner_user_id, template_name, media_type, media_source, content, buttons_json
             FROM message_templates WHERE group_id = ? OR template_id = ?
             """,
             (group_id, active_tpl_id),
@@ -1276,6 +1364,10 @@ async def api_export_group_config(
             if t["template_id"] in seen_tpl_ids:
                 continue
             seen_tpl_ids.add(t["template_id"])
+            # 只导出设置者可见的模板：别人的模板不进导出文件，否则导入后
+            # 会以副本形式落到别人手里，绕过隔离。
+            if not _template_visible_to(t, group_id, int(user["id"])):
+                continue
             try:
                 buttons = json.loads(t.get("buttons_json") or "[]")
             except (ValueError, TypeError):

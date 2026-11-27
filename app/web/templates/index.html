@@ -701,7 +701,7 @@
         <div class="flex items-center justify-between border-b border-white/10 pb-3">
           <div>
             <h2 class="text-sm font-bold text-white">📄 独立消息模板库</h2>
-            <p class="text-xs text-slate-400 mt-0.5">解耦复用设计，支持图文/动图、HTML 插值占位符与多行内联按钮矩阵</p>
+            <p class="text-xs text-slate-400 mt-0.5">解耦复用设计，支持图文/动图、HTML 插值占位符、富文本格式与多行彩色内联按钮；模板按管理员隔离，他人的模板不可见不可改</p>
           </div>
           <button type="button" onclick="resetTemplateEditor()" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-xs transition">
             + 新建空白模板
@@ -750,22 +750,58 @@
                 <button type="button" onclick="insertTplVar('{group_title}')" class="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] text-violet-300 font-mono">{group_title}</button>
               </div>
             </div>
+            <!-- 富文本格式工具栏：选中文字后点一下包上对应标签；没选中则插入空标签对、光标留在中间 -->
+            <div class="flex flex-wrap gap-1 mb-1.5">
+              <button type="button" onclick="wrapTplFormat('b')" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] font-bold text-white" title="加粗 <b>">B</button>
+              <button type="button" onclick="wrapTplFormat('i')" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] italic text-white" title="斜体 <i>">I</button>
+              <button type="button" onclick="wrapTplFormat('u')" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] underline text-white" title="下划线 <u>">U</button>
+              <button type="button" onclick="wrapTplFormat('s')" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] line-through text-white" title="删除线 <s>">S</button>
+              <button type="button" onclick="wrapTplFormat('code')" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] font-mono text-white" title="等宽 <code>">等宽</button>
+              <button type="button" onclick="wrapTplFormat('spoiler')" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] text-white" title="剧透 <tg-spoiler>">剧透</button>
+              <button type="button" onclick="wrapTplFormat('quote')" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] text-white" title="引用 <blockquote>">引用</button>
+              <button type="button" onclick="openTplLinkDialog()" class="tpl-fmt-btn px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] text-white" title="链接 <a href=&quot;...&quot;>">链接</button>
+            </div>
             <textarea id="tpl-content" rows="4" placeholder="欢迎 {mention} 加入 <b>{group_title}</b>！" class="w-full p-2.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white focus:outline-none focus:border-violet-400"></textarea>
+            <div class="mt-1.5">
+              <label class="block text-[11px] text-slate-400 mb-1">实时预览（占位符按示例填充，所见即 TG 里的效果）：</label>
+              <div id="tpl-content-preview" class="p-3 rounded-xl bg-black/40 border border-white/10 text-xs text-white whitespace-pre-wrap break-words"></div>
+            </div>
           </div>
 
           <div>
-            <label class="block text-[11px] text-slate-400 mb-1">内联按钮矩阵 JSON (格式: [[{"text":"官网","url":"https://..."}]])</label>
-            <textarea id="tpl-buttons-json" rows="2" class="w-full p-2 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-amber-300 font-mono focus:outline-none focus:border-violet-400"></textarea>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-[11px] text-slate-400">内联按钮（一行一个，可加很多行；颜色：默认 / 红 / 绿 / 蓝）</label>
+              <button type="button" id="tpl-add-btn" onclick="addTplButtonRow()" class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] text-emerald-300">＋ 添加一行</button>
+            </div>
+            <div id="tpl-buttons-editor" class="space-y-1.5"></div>
+            <div id="tpl-buttons-raw-wrap" class="hidden">
+              <p class="text-[11px] text-amber-300 mb-1">⚠️ 按钮 JSON 解析失败，已切换回原文框，请修正后保存（保存前不会覆盖原值）。</p>
+              <textarea id="tpl-buttons-json" rows="2" class="w-full p-2 rounded-lg bg-[#1c1836] border border-amber-400/40 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-400"></textarea>
+            </div>
+            <p id="tpl-edit-note" class="hidden text-[11px] text-amber-300 mt-1"></p>
+          </div>
+
+          <!-- 链接地址小对话框（不用 window.prompt，TG Mini App 里不可靠） -->
+          <div id="tpl-link-dialog" class="hidden p-2.5 rounded-xl bg-[#241f45] border border-violet-400/40 space-y-2">
+            <label class="block text-[11px] text-slate-300">链接地址（https://… 或 tg://…）</label>
+            <input id="tpl-link-url" type="text" placeholder="https://..." class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
+            <div class="flex justify-end gap-2">
+              <button type="button" onclick="closeTplLinkDialog()" class="px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-slate-300">取消</button>
+              <button type="button" onclick="confirmTplLink()" class="px-3 py-1 rounded-lg bg-violet-500 hover:bg-violet-400 text-[11px] text-white">插入链接</button>
+            </div>
           </div>
 
           <div class="flex justify-end gap-2 pt-1">
-            <button type="button" onclick="saveTemplateItem()" class="px-4 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition">
+            <button type="button" id="tpl-save-btn" onclick="saveTemplateItem()" class="px-4 py-1.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 text-white font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed">
               💾 保存模板到库
             </button>
           </div>
         </div>
       </div>
     </section>
+
+    <!-- 模板正文右键菜单（只在 #tpl-content 上弹出，见 initTplContentEditor） -->
+    <div id="tpl-content-menu" class="hidden fixed z-50 min-w-[140px] rounded-xl bg-[#241f45] border border-white/15 shadow-xl py-1 text-xs text-white"></div>
 
     <!-- ==================== 视图 6: ⚡ 紧急模式与权限 (Emergency) ==================== -->
     <section id="view-emergency" class="hidden space-y-4">
@@ -1754,6 +1790,7 @@
         {
           template_id: 1,
           group_id: null,
+          owner_user_id: null,
           template_name: '系统默认入群欢迎模板',
           media_type: 'none',
           media_source: '',
@@ -2090,6 +2127,7 @@
             mockStore.templates.unshift({
               template_id: newId,
               group_id: gid,
+              owner_user_id: mockStore.user.id,
               template_name: body.template_name,
               media_type: body.media_type,
               media_source: body.media_source,
@@ -2099,9 +2137,21 @@
             pushMockLog(gid, 'save_template', `新建消息模板: ${body.template_name}`);
           }
         }
+        // 沙盒里同样按归属过滤：全局模板人人可见、只有超级管理员能改；
+        // 本群模板只看得到自己的（或 owner 为空的旧模板）
         const list = mockStore.templates
-          .filter(t => t.group_id === null || t.group_id === gid)
-          .map(t => ({ ...t, buttons: JSON.parse(t.buttons_json || '[]') }));
+          .filter(t => {
+            if (t.group_id === null) return true;
+            if (t.group_id !== gid) return false;
+            const owner = t.owner_user_id;
+            return owner === null || owner === undefined || owner === mockStore.user.id;
+          })
+          .map(t => {
+            const editable = t.group_id === null
+              ? [8449446199].includes(mockStore.user.id)
+              : (t.owner_user_id === null || t.owner_user_id === undefined || t.owner_user_id === mockStore.user.id);
+            return { ...t, buttons: JSON.parse(t.buttons_json || '[]'), editable };
+          });
         return { templates: list };
       }
       if (sub.startsWith('templates/') && method === 'DELETE') {
@@ -2736,6 +2786,8 @@
         appState.activeGroupId = null;
         navigateToView('empty');
       }
+
+      initTplContentEditor();
     }
 
     async function refreshAllGroupData() {
@@ -3022,13 +3074,18 @@
           <div>
             <div class="flex items-center justify-between gap-2">
               <span class="text-xs font-bold text-white">${escapeHtml(t.template_name)}</span>
-              <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-300">${t.media_type || 'none'}</span>
+              <span class="flex items-center gap-1">
+                ${t.editable === false ? '<span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-400">仅查看</span>' : ''}
+                <span class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-300">${t.media_type || 'none'}</span>
+              </span>
             </div>
             <p class="text-[11px] text-slate-400 mt-1 line-clamp-2">${escapeHtml(t.content)}</p>
           </div>
           <div class="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
-            <button type="button" onclick="loadTemplateIntoEditor(${t.template_id})" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-violet-300">编辑</button>
-            ${t.group_id ? `<button type="button" onclick="deleteTemplateItem(${t.template_id})" class="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-[11px] text-rose-300">删除</button>` : ''}
+            ${t.editable === false
+              ? '<button type="button" disabled class="px-2.5 py-1 rounded-lg bg-white/5 text-[11px] text-slate-500 opacity-60 cursor-not-allowed">编辑</button>'
+              : `<button type="button" onclick="loadTemplateIntoEditor(${t.template_id})" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-violet-300">编辑</button>`}
+            ${t.group_id && t.editable !== false ? `<button type="button" onclick="deleteTemplateItem(${t.template_id})" class="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-[11px] text-rose-300">删除</button>` : ''}
           </div>
         </div>
       `).join('');
@@ -3046,8 +3103,18 @@
       document.getElementById('tpl-media-type').value = tpl.media_type || 'none';
       document.getElementById('tpl-media-source').value = tpl.media_source || '';
       document.getElementById('tpl-content').value = tpl.content || '';
-      document.getElementById('tpl-buttons-json').value = tpl.buttons_json || JSON.stringify(tpl.buttons || []);
+      // 按钮：多按钮同行压平成多行（一行一个）；JSON 解析失败则回退到原文框，不丢原值
+      let parsed = null;
+      try { parsed = JSON.parse(tpl.buttons_json || JSON.stringify(tpl.buttons || [])); } catch (e) { parsed = null; }
+      if (parsed === null) {
+        document.getElementById('tpl-buttons-json').value = tpl.buttons_json || '';
+        document.getElementById('tpl-buttons-raw-wrap').classList.remove('hidden');
+      } else {
+        renderTplButtonRows(parsed);
+      }
       document.getElementById('tpl-editing-badge').textContent = `正在编辑 ID=${tpl.template_id}`;
+      setTplEditorEditable(tpl.editable !== false);
+      updateTplContentPreview();
     }
 
     function resetTemplateEditor() {
@@ -3056,8 +3123,29 @@
       document.getElementById('tpl-media-type').value = 'none';
       document.getElementById('tpl-media-source').value = '';
       document.getElementById('tpl-content').value = '🎉 欢迎 {mention} 加入 <b>{group_title}</b>！';
-      document.getElementById('tpl-buttons-json').value = '[[{"text":"📖 群规必读","url":"https://telegram.org"}]]';
+      renderTplButtonRows([[{ text: '📖 群规必读', url: 'https://telegram.org' }]]);
       document.getElementById('tpl-editing-badge').textContent = '新建模板模式';
+      setTplEditorEditable(true);
+      updateTplContentPreview();
+    }
+
+    // 不可编辑的模板（全局模板非超级管理员、他人的模板）：锁住编辑器，只读查看
+    function setTplEditorEditable(editable) {
+      const note = document.getElementById('tpl-edit-note');
+      const saveBtn = document.getElementById('tpl-save-btn');
+      const addBtn = document.getElementById('tpl-add-btn');
+      ['tpl-name', 'tpl-media-type', 'tpl-media-source', 'tpl-content'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !editable;
+      });
+      document.querySelectorAll('.tpl-fmt-btn').forEach(el => { el.disabled = !editable; });
+      document.querySelectorAll('#tpl-buttons-editor input, #tpl-buttons-editor select, #tpl-buttons-editor button').forEach(el => { el.disabled = !editable; });
+      if (addBtn) addBtn.disabled = !editable;
+      if (saveBtn) saveBtn.disabled = !editable;
+      if (note) {
+        if (editable) { note.classList.add('hidden'); note.textContent = ''; }
+        else { note.classList.remove('hidden'); note.textContent = '⛔ 该模板不可编辑：全局模板只有超级管理员能改，他人的模板只有本人能改。'; }
+      }
     }
 
     function insertTplVar(token) {
@@ -3067,6 +3155,216 @@
       const end = area.selectionEnd || area.value.length;
       area.value = area.value.slice(0, start) + token + area.value.slice(end);
       area.focus();
+      updateTplContentPreview();
+    }
+
+    // ==================== 模板按钮结构化编辑器（一行一个，可加很多行） ====================
+    function tplButtonRowEl(btn) {
+      const row = document.createElement('div');
+      row.className = 'tpl-btn-row flex items-center gap-1.5';
+      row.innerHTML = `
+        <input type="text" placeholder="按钮文字" class="tpl-btn-text flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
+        <input type="text" placeholder="https://..." class="tpl-btn-url flex-[2] min-w-0 px-2 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-amber-300 font-mono" />
+        <select class="tpl-btn-style px-1.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white">
+          <option value="">默认</option>
+          <option value="danger">红</option>
+          <option value="success">绿</option>
+          <option value="primary">蓝</option>
+        </select>
+        <button type="button" class="tpl-btn-remove px-2 py-1 rounded-lg bg-white/5 hover:bg-rose-500/30 text-[11px] text-rose-300" title="删除这一行">✕</button>`;
+      row.querySelector('.tpl-btn-text').value = btn.text || '';
+      row.querySelector('.tpl-btn-url').value = btn.url || '';
+      row.querySelector('.tpl-btn-style').value = ['danger', 'success', 'primary'].includes(btn.style) ? btn.style : '';
+      row.querySelector('.tpl-btn-remove').addEventListener('click', () => row.remove());
+      return row;
+    }
+
+    function renderTplButtonRows(buttons) {
+      const editor = document.getElementById('tpl-buttons-editor');
+      const rawWrap = document.getElementById('tpl-buttons-raw-wrap');
+      editor.innerHTML = '';
+      rawWrap.classList.add('hidden');
+      const flat = [];
+      (Array.isArray(buttons) ? buttons : []).forEach(row => {
+        if (Array.isArray(row)) row.forEach(b => { if (b && typeof b === 'object') flat.push(b); });
+        else if (row && typeof row === 'object') flat.push(row);
+      });
+      if (!flat.length) flat.push({ text: '', url: '' });
+      flat.forEach(b => editor.appendChild(tplButtonRowEl(b)));
+    }
+
+    function addTplButtonRow() {
+      const editor = document.getElementById('tpl-buttons-editor');
+      editor.appendChild(tplButtonRowEl({ text: '', url: '' }));
+      const inputs = editor.querySelectorAll('.tpl-btn-text');
+      inputs[inputs.length - 1].focus();
+    }
+
+    // 收集按钮：结构化编辑器 -> [[{text,url,style?}]]（一行一个）；原文框模式则直接解析 JSON。
+    // 返回 null 表示校验未过（已 toast 提示），调用方应中止保存。
+    function collectTplButtons() {
+      const rawWrap = document.getElementById('tpl-buttons-raw-wrap');
+      if (!rawWrap.classList.contains('hidden')) {
+        const raw = (document.getElementById('tpl-buttons-json').value || '').trim();
+        if (!raw) return [];
+        try { return JSON.parse(raw); }
+        catch (err) { showToast('按钮 JSON 格式有误，请检查括号与引号', 'error'); return null; }
+      }
+      const matrix = [];
+      let badRow = 0;
+      document.querySelectorAll('#tpl-buttons-editor .tpl-btn-row').forEach((row, idx) => {
+        const text = (row.querySelector('.tpl-btn-text').value || '').trim();
+        const url = (row.querySelector('.tpl-btn-url').value || '').trim();
+        const style = row.querySelector('.tpl-btn-style').value || '';
+        if (!text && !url) return;
+        if (!text || !url || !/^(https?:\/\/|tg:\/\/)/i.test(url)) { badRow = idx + 1; return; }
+        const btn = { text, url };
+        if (style) btn.style = style;
+        matrix.push([btn]);
+      });
+      if (badRow) {
+        showToast(`第 ${badRow} 行按钮不完整：文字和链接都要填，链接以 https:// 或 tg:// 开头`, 'error');
+        return null;
+      }
+      return matrix;
+    }
+
+    // ==================== 模板正文富文本格式（工具栏 + 右键菜单 + 实时预览） ====================
+    const TPL_FORMAT_TAGS = [
+      { key: 'b', open: '<b>', close: '</b>' },
+      { key: 'i', open: '<i>', close: '</i>' },
+      { key: 'u', open: '<u>', close: '</u>' },
+      { key: 's', open: '<s>', close: '</s>' },
+      { key: 'code', open: '<code>', close: '</code>' },
+      { key: 'spoiler', open: '<tg-spoiler>', close: '</tg-spoiler>' },
+      { key: 'quote', open: '<blockquote>', close: '</blockquote>' },
+    ];
+
+    // 用 selectionStart/selectionEnd 包选区（不用 document.execCommand，它对 textarea 无效）。
+    // 没选中时插入空标签对、光标留在中间，方便直接打字。
+    function wrapTplFormat(key) {
+      const tag = TPL_FORMAT_TAGS.find(t => t.key === key);
+      if (!tag) return;
+      const area = document.getElementById('tpl-content');
+      if (!area || area.disabled) return;
+      const start = area.selectionStart ?? area.value.length;
+      const end = area.selectionEnd ?? area.value.length;
+      const selected = area.value.slice(start, end);
+      area.value = area.value.slice(0, start) + tag.open + selected + tag.close + area.value.slice(end);
+      area.focus();
+      const caret = selected ? start + tag.open.length + selected.length + tag.close.length : start + tag.open.length;
+      area.setSelectionRange(caret, caret);
+      updateTplContentPreview();
+    }
+
+    let tplLinkSel = null;
+    function openTplLinkDialog() {
+      const area = document.getElementById('tpl-content');
+      if (!area || area.disabled) return;
+      tplLinkSel = { start: area.selectionStart ?? area.value.length, end: area.selectionEnd ?? area.value.length };
+      document.getElementById('tpl-link-url').value = '';
+      document.getElementById('tpl-link-dialog').classList.remove('hidden');
+      document.getElementById('tpl-link-url').focus();
+    }
+    function closeTplLinkDialog() {
+      document.getElementById('tpl-link-dialog').classList.add('hidden');
+      tplLinkSel = null;
+    }
+    function confirmTplLink() {
+      const url = (document.getElementById('tpl-link-url').value || '').trim();
+      if (!url) { showToast('请填写链接地址', 'error'); return; }
+      if (!/^(https?:\/\/|tg:\/\/)/i.test(url)) { showToast('链接以 https:// 或 tg:// 开头', 'error'); return; }
+      const area = document.getElementById('tpl-content');
+      const sel = tplLinkSel || { start: area.value.length, end: area.value.length };
+      const selected = area.value.slice(sel.start, sel.end) || '链接文字';
+      const tag = `<a href="${url.replace(/"/g, '&quot;')}">${selected}</a>`;
+      area.value = area.value.slice(0, sel.start) + tag + area.value.slice(sel.end);
+      closeTplLinkDialog();
+      area.focus();
+      const caret = sel.start + tag.length;
+      area.setSelectionRange(caret, caret);
+      updateTplContentPreview();
+    }
+
+    // 右键菜单：只在模板正文框上弹出，屏蔽浏览器原生菜单；点别处 / Esc 关闭
+    function buildTplContentMenu() {
+      const menu = document.getElementById('tpl-content-menu');
+      if (!menu || menu.dataset.built) return;
+      menu.dataset.built = '1';
+      const labels = { b: '加粗', i: '斜体', u: '下划线', s: '删除线', code: '等宽', spoiler: '剧透', quote: '引用' };
+      const items = [...TPL_FORMAT_TAGS.map(t => ({ label: labels[t.key], act: () => wrapTplFormat(t.key) })),
+        { label: '链接', act: () => openTplLinkDialog() }];
+      menu.innerHTML = items.map((it, i) => `<button type="button" data-tpl-menu-idx="${i}" class="block w-full text-left px-3 py-1.5 hover:bg-white/10">${it.label}</button>`).join('');
+      menu.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-tpl-menu-idx]');
+        if (!btn) return;
+        hideTplContentMenu();
+        items[Number(btn.dataset.tplMenuIdx)].act();
+      });
+    }
+    function showTplContentMenu(x, y) {
+      buildTplContentMenu();
+      const menu = document.getElementById('tpl-content-menu');
+      menu.classList.remove('hidden');
+      menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 8) + 'px';
+      menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 8) + 'px';
+    }
+    function hideTplContentMenu() {
+      const menu = document.getElementById('tpl-content-menu');
+      if (menu) menu.classList.add('hidden');
+    }
+
+    // 实时预览：占位符按示例填充，HTML 标签直接渲染（管理员自己写的内容）
+    function updateTplContentPreview() {
+      const el = document.getElementById('tpl-content-preview');
+      const area = document.getElementById('tpl-content');
+      if (!el || !area) return;
+      const html = (area.value || '')
+        .replace(/\{username\}/g, '@Alice_Dev')
+        .replace(/\{fullname\}/g, 'Alice')
+        .replace(/\{mention\}/g, '<span class="text-violet-300 underline">@Alice</span>')
+        .replace(/\{user_id\}/g, '61928374')
+        .replace(/\{group_title\}/g, '示例技术群')
+        .replace(/\n/g, '<br/>');
+      el.innerHTML = html || '<span class="text-slate-500">（空）</span>';
+    }
+
+    // 保存前检查标签是否配对：标签写错 Telegram 会拒收整条欢迎语，宁可先拦下来
+    const TPL_BALANCE_TAGS = ['b', 'i', 'u', 's', 'code', 'tg-spoiler', 'blockquote', 'a'];
+    function checkTplTagsBalanced(content) {
+      const re = /<\/?([A-Za-z][A-Za-z0-9-]*)(\s[^>]*)?\/?>/g;
+      const stack = [];
+      let m;
+      while ((m = re.exec(content)) !== null) {
+        const name = m[1].toLowerCase();
+        if (!TPL_BALANCE_TAGS.includes(name)) continue;
+        const raw = m[0];
+        if (raw.endsWith('/>')) continue;
+        if (raw.startsWith('</')) {
+          if (stack.length && stack[stack.length - 1] === name) stack.pop();
+          else return { ok: false, tag: name, reason: 'close' };
+        } else {
+          stack.push(name);
+        }
+      }
+      if (stack.length) return { ok: false, tag: stack[stack.length - 1], reason: 'open' };
+      return { ok: true };
+    }
+
+    function initTplContentEditor() {
+      const area = document.getElementById('tpl-content');
+      if (!area) return;
+      area.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showTplContentMenu(e.clientX, e.clientY);
+      });
+      area.addEventListener('input', updateTplContentPreview);
+      document.addEventListener('click', (e) => {
+        const menu = document.getElementById('tpl-content-menu');
+        if (menu && !menu.contains(e.target)) hideTplContentMenu();
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTplContentMenu(); });
+      updateTplContentPreview();
     }
 
     async function saveTemplateItem() {
@@ -3076,16 +3374,15 @@
         showToast('模板名称与正文内容不能为空', 'error');
         return;
       }
-      let parsedButtons = [];
-      const rawBtn = (document.getElementById('tpl-buttons-json').value || '').trim();
-      if (rawBtn) {
-        try {
-          parsedButtons = JSON.parse(rawBtn);
-        } catch (err) {
-          showToast('按钮 JSON 格式有误，请检查括号与引号', 'error');
-          return;
-        }
+      const balance = checkTplTagsBalanced(content);
+      if (!balance.ok) {
+        showToast(balance.reason === 'open'
+          ? `标签 <${balance.tag}> 未闭合，请补上 </${balance.tag}> 再保存`
+          : `多余的闭合标签 </${balance.tag}>，请检查后再保存`, 'error');
+        return;
       }
+      const parsedButtons = collectTplButtons();
+      if (parsedButtons === null) return;
       const tidVal = document.getElementById('tpl-id-hidden').value;
       const payload = {
         template_id: tidVal ? Number(tidVal) : null,
@@ -3095,7 +3392,12 @@
         content,
         buttons: parsedButtons
       };
-      await apiRequest('POST', `/api/group/${appState.activeGroupId}/templates`, payload);
+      try {
+        await apiRequest('POST', `/api/group/${appState.activeGroupId}/templates`, payload);
+      } catch (err) {
+        showToast(err && err.message ? err.message : '保存失败', 'error');
+        return;
+      }
       await refreshAllGroupData();
       showToast('消息模板已保存');
     }
