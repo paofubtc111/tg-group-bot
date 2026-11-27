@@ -972,9 +972,12 @@
         <div class="flex items-center justify-between border-b border-white/10 pb-3">
           <div>
             <h2 class="text-sm font-bold text-white flex items-center gap-2">💬 群消息管理</h2>
-            <p class="text-xs text-slate-400 mt-0.5">最近群消息归档（每群保留最新 500 条），可搜索并一键撤回</p>
+            <p class="text-xs text-slate-400 mt-0.5">最近群消息归档（每群保留最新 500 条），可搜索、一键撤回、导出 Excel</p>
           </div>
-          <button type="button" onclick="loadMessages(1)" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-200 border border-white/10">刷新列表</button>
+          <div class="flex gap-2">
+            <button type="button" onclick="exportMessagesExcel()" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-xs text-white font-semibold">📥 导出 Excel</button>
+            <button type="button" onclick="loadMessages(1)" class="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-200 border border-white/10">刷新列表</button>
+          </div>
         </div>
 
         <div class="relative">
@@ -3961,6 +3964,38 @@
 
     function messagesNextPage() {
       if (appState.messagesPage * 20 < appState.messagesTotal) loadMessages(appState.messagesPage + 1);
+    }
+
+    // 导出群消息为 Excel：按当前搜索条件筛（没搜就是全部存档），二进制下载要自己带签名头，
+    // 不能走只返回 JSON 的 apiRequest。
+    async function exportMessagesExcel() {
+      if (!requireActiveGroup()) return;
+      const q = encodeURIComponent(appState.messagesQuery || '');
+      const url = `/api/group/${appState.activeGroupId}/messages/export?q=${q}`;
+      showToast('正在生成 Excel…');
+      let resp;
+      try {
+        resp = await fetch(url, { headers: { 'X-Telegram-Init-Data': rawInitData || 'dev' } });
+      } catch (err) {
+        showToast('导出失败：后端连接失败', 'error');
+        return;
+      }
+      if (!resp.ok) {
+        let detail = '';
+        try { const data = await resp.json(); detail = data.detail || ''; } catch (e) {}
+        showToast('导出失败：' + (detail || `请求失败 (${resp.status})`), 'error');
+        return;
+      }
+      const blob = await resp.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      a.download = `group-messages-${appState.activeGroupId}-${stamp}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      showToast('Excel 已开始下载');
     }
 
     function renderMessagesList() {

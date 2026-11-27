@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -6,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from aiogram.types import ChatPermissions
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.auth import (
@@ -1774,6 +1775,98 @@ async def api_get_group_messages(
         "page": page,
         "page_size": page_size,
     }
+
+
+# 导出群消息为 Excel：最多 20000 条（存档本身每群最多保留 500 条，正常到不了上限）。
+# 时间按北京时间写进 Excel 日期列；支持 ?q= 搜索过滤，导出的是当前筛出来的那些。
+MESSAGES_EXPORT_LIMIT = 20000
+
+
+@api_router.get("/api/group/{group_id}/messages/export")
+async def api_export_group_messages(
+    group_id: int,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    q: str = "",
+) -> StreamingResponse:
+    await require_group_admin(request, group_id, user)
+
+    where = "group_id = ?"
+    params: list = [group_id]
+    query = (q or "").strip()
+    if query:
+        where += " AND (text LIKE ? OR username LIKE ? OR CAST(user_id AS TEXT) LIKE ?)"
+        params += [f"%{query}%", f"%{query}%", f"%{query}%"]
+
+    async with get_db() as db:
+        rows = await db.fetch(
+            f"""
+            SELECT message_id, user_id, username, text, created_at
+            FROM group_messages WHERE {where}
+            ORDER BY id ASC LIMIT ?
+            """,
+            params + [MESSAGES_EXPORT_LIMIT],
+        )
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="Excel 导出组件未安装（openpyxl），请联系管理员",
+        )
+
+    shanghai = timezone(timedelta(hours=8))
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "群消息"
+    ws.append(["时间（北京时间）", "消息 ID", "用户 ID", "用户名", "消息内容"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in rows:
+        created = row.get("created_at")
+        dt = None
+        if isinstance(created, datetime):
+            dt = created
+        elif isinstance(created, str):
+            try:
+                dt = datetime.strptime(created, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                try:
+                    dt = datetime.fromisoformat(created)
+                except ValueError:
+                    dt = None
+        if dt is not None:
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(shanghai).replace(tzinfo=None)
+        ws.append([
+            dt,
+            row.get("message_id"),
+            row.get("user_id"),
+            row.get("username") or "",
+            (row.get("text") or "")[:32000],
+        ])
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 14
+    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["E"].width = 120
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = (
+        f"group-messages-{group_id}-"
+        f"{datetime.now(shanghai).strftime('%Y%m%d')}.xlsx"
+    )
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @api_router.delete("/api/group/{group_id}/messages/{message_id}")
