@@ -773,7 +773,7 @@
 
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label class="text-[11px] text-slate-400">内联按钮（一行一个，可加很多行；颜色：默认 / 红 / 绿 / 蓝）</label>
+              <label class="text-[11px] text-slate-400">内联按钮（每行 1–2 个并排，可加很多行，可上移下移；颜色：默认 / 红 / 绿 / 蓝）</label>
               <button type="button" id="tpl-add-btn" onclick="addTplButtonRow()" class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[11px] text-emerald-300">＋ 添加一行</button>
             </div>
             <div id="tpl-buttons-editor" class="space-y-1.5"></div>
@@ -3174,10 +3174,11 @@
     }
 
     // ==================== 模板按钮结构化编辑器（一行一个，可加很多行） ====================
-    function tplButtonRowEl(btn) {
-      const row = document.createElement('div');
-      row.className = 'tpl-btn-row flex items-center gap-1.5';
-      row.innerHTML = `
+    // 一个按钮位：文字 + 链接 + 颜色；✕ 只在同行有两个按钮位时才显示（剩一个时不能再去）。
+    function tplButtonSlotEl(btn) {
+      const slot = document.createElement('div');
+      slot.className = 'tpl-btn-slot flex items-center gap-1.5';
+      slot.innerHTML = `
         <input type="text" placeholder="按钮文字" class="tpl-btn-text flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white" />
         <input type="text" placeholder="https://..." class="tpl-btn-url flex-[2] min-w-0 px-2 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-amber-300 font-mono" />
         <select class="tpl-btn-style px-1.5 py-1.5 rounded-lg bg-[#1c1836] border border-white/15 text-xs text-white">
@@ -3186,11 +3187,65 @@
           <option value="success">绿</option>
           <option value="primary">蓝</option>
         </select>
-        <button type="button" class="tpl-btn-remove px-2 py-1 rounded-lg bg-white/5 hover:bg-rose-500/30 text-[11px] text-rose-300" title="删除这一行">✕</button>`;
-      row.querySelector('.tpl-btn-text').value = btn.text || '';
-      row.querySelector('.tpl-btn-url').value = btn.url || '';
-      row.querySelector('.tpl-btn-style').value = ['danger', 'success', 'primary'].includes(btn.style) ? btn.style : '';
-      row.querySelector('.tpl-btn-remove').addEventListener('click', () => row.remove());
+        <button type="button" class="tpl-btn-slot-remove px-2 py-1 rounded-lg bg-white/5 hover:bg-rose-500/30 text-[11px] text-rose-300" title="去掉这个并排按钮">✕</button>`;
+      slot.querySelector('.tpl-btn-text').value = btn.text || '';
+      slot.querySelector('.tpl-btn-url').value = btn.url || '';
+      slot.querySelector('.tpl-btn-style').value = ['danger', 'success', 'primary'].includes(btn.style) ? btn.style : '';
+      slot.querySelector('.tpl-btn-slot-remove').addEventListener('click', () => {
+        const row = slot.closest('.tpl-btn-row');
+        slot.remove();
+        tplRefreshButtonRowControls(row);
+        updateTplContentPreview();
+      });
+      return slot;
+    }
+
+    // 按同行按钮位数刷新控制按钮：并排/互换只在对应情况下出现。
+    function tplRefreshButtonRowControls(row) {
+      if (!row) return;
+      const n = row.querySelectorAll('.tpl-btn-slot').length;
+      row.querySelector('.tpl-btn-sidebyside').style.display = n >= 2 ? 'none' : '';
+      row.querySelector('.tpl-btn-swap').style.display = n >= 2 ? '' : 'none';
+      row.querySelectorAll('.tpl-btn-slot-remove').forEach(b => { b.style.display = n >= 2 ? '' : 'none'; });
+    }
+
+    // 一行卡片 = TG 里的一行：含 1–2 个并排按钮位 + 本行操作（并排/互换/上移/下移/删除本行）。
+    function tplButtonRowEl(buttons) {
+      const row = document.createElement('div');
+      row.className = 'tpl-btn-row space-y-1.5 p-2 rounded-xl bg-black/20 border border-white/5';
+      row.innerHTML = `
+        <div class="tpl-btn-slots space-y-1.5"></div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button type="button" class="tpl-btn-sidebyside px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-emerald-300" title="在这行再加一个并排按钮">＋ 并排</button>
+          <button type="button" class="tpl-btn-swap px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-slate-200" title="互换这行两个按钮的左右位置">⇄ 互换</button>
+          <button type="button" class="tpl-btn-up px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-slate-200" title="整行上移">↑ 上移</button>
+          <button type="button" class="tpl-btn-down px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-slate-200" title="整行下移">↓ 下移</button>
+          <button type="button" class="tpl-btn-remove px-2 py-1 rounded-lg bg-white/5 hover:bg-rose-500/30 text-[11px] text-rose-300" title="删除这一行">✕ 删除本行</button>
+        </div>`;
+      const slots = row.querySelector('.tpl-btn-slots');
+      const list = (Array.isArray(buttons) && buttons.length ? buttons : [{ text: '', url: '' }]).slice(0, 2);
+      list.forEach(b => slots.appendChild(tplButtonSlotEl(b || {})));
+      row.querySelector('.tpl-btn-sidebyside').addEventListener('click', () => {
+        if (slots.querySelectorAll('.tpl-btn-slot').length >= 2) return;
+        slots.appendChild(tplButtonSlotEl({ text: '', url: '' }));
+        tplRefreshButtonRowControls(row);
+        updateTplContentPreview();
+        slots.querySelectorAll('.tpl-btn-text')[slots.children.length - 1].focus();
+      });
+      row.querySelector('.tpl-btn-swap').addEventListener('click', () => {
+        const s = slots.querySelectorAll('.tpl-btn-slot');
+        if (s.length < 2) return;
+        slots.insertBefore(s[1], s[0]);
+        updateTplContentPreview();
+      });
+      row.querySelector('.tpl-btn-up').addEventListener('click', () => {
+        if (row.previousElementSibling) { row.parentNode.insertBefore(row, row.previousElementSibling); updateTplContentPreview(); }
+      });
+      row.querySelector('.tpl-btn-down').addEventListener('click', () => {
+        if (row.nextElementSibling) { row.parentNode.insertBefore(row.nextElementSibling, row); updateTplContentPreview(); }
+      });
+      row.querySelector('.tpl-btn-remove').addEventListener('click', () => { row.remove(); updateTplContentPreview(); });
+      tplRefreshButtonRowControls(row);
       return row;
     }
 
@@ -3199,24 +3254,24 @@
       const rawWrap = document.getElementById('tpl-buttons-raw-wrap');
       editor.innerHTML = '';
       rawWrap.classList.add('hidden');
-      const flat = [];
+      const rows = [];
       (Array.isArray(buttons) ? buttons : []).forEach(row => {
-        if (Array.isArray(row)) row.forEach(b => { if (b && typeof b === 'object') flat.push(b); });
-        else if (row && typeof row === 'object') flat.push(row);
+        if (Array.isArray(row)) rows.push(row.filter(b => b && typeof b === 'object'));
+        else if (row && typeof row === 'object') rows.push([row]);
       });
-      if (!flat.length) flat.push({ text: '', url: '' });
-      flat.forEach(b => editor.appendChild(tplButtonRowEl(b)));
+      if (!rows.length) rows.push([{ text: '', url: '' }]);
+      rows.forEach(r => editor.appendChild(tplButtonRowEl(r)));
     }
 
     function addTplButtonRow() {
       const editor = document.getElementById('tpl-buttons-editor');
-      editor.appendChild(tplButtonRowEl({ text: '', url: '' }));
-      const inputs = editor.querySelectorAll('.tpl-btn-text');
-      inputs[inputs.length - 1].focus();
+      editor.appendChild(tplButtonRowEl([{ text: '', url: '' }]));
+      const inputs = editor.querySelectorAll('.tpl-btn-row:last-child .tpl-btn-text');
+      if (inputs.length) inputs[0].focus();
       updateTplContentPreview();
     }
 
-    // 收集按钮：结构化编辑器 -> [[{text,url,style?}]]（一行一个）；原文框模式则直接解析 JSON。
+    // 收集按钮：结构化编辑器 -> [[{text,url,style?}]]（一行 1–2 个并排）；原文框模式则直接解析 JSON。
     // 返回 null 表示校验未过（已 toast 提示），调用方应中止保存。
     function collectTplButtons() {
       const rawWrap = document.getElementById('tpl-buttons-raw-wrap');
@@ -3227,19 +3282,23 @@
         catch (err) { showToast('按钮 JSON 格式有误，请检查括号与引号', 'error'); return null; }
       }
       const matrix = [];
-      let badRow = 0;
+      let bad = '';
       document.querySelectorAll('#tpl-buttons-editor .tpl-btn-row').forEach((row, idx) => {
-        const text = (row.querySelector('.tpl-btn-text').value || '').trim();
-        const url = (row.querySelector('.tpl-btn-url').value || '').trim();
-        const style = row.querySelector('.tpl-btn-style').value || '';
-        if (!text && !url) return;
-        if (!text || !url || !/^(https?:\/\/|tg:\/\/)/i.test(url)) { badRow = idx + 1; return; }
-        const btn = { text, url };
-        if (style) btn.style = style;
-        matrix.push([btn]);
+        const btns = [];
+        row.querySelectorAll('.tpl-btn-slot').forEach((slot, sidx) => {
+          const text = (slot.querySelector('.tpl-btn-text').value || '').trim();
+          const url = (slot.querySelector('.tpl-btn-url').value || '').trim();
+          const style = slot.querySelector('.tpl-btn-style').value || '';
+          if (!text && !url) return;
+          if (!text || !url || !/^(https?:\/\/|tg:\/\/)/i.test(url)) { bad = `第 ${idx + 1} 行第 ${sidx + 1} 个按钮`; return; }
+          const btn = { text, url };
+          if (style) btn.style = style;
+          btns.push(btn);
+        });
+        if (btns.length) matrix.push(btns);
       });
-      if (badRow) {
-        showToast(`第 ${badRow} 行按钮不完整：文字和链接都要填，链接以 https:// 或 tg:// 开头`, 'error');
+      if (bad) {
+        showToast(`${bad}不完整：文字和链接都要填，链接以 https:// 或 tg:// 开头`, 'error');
         return null;
       }
       return matrix;
@@ -3353,18 +3412,23 @@
 
     // 唯一的实时预览：正文 + 当前按钮行，按 TG 里的效果渲染；改格式、改字、改按钮都立刻刷新。
     // 按钮 HTML 是纯函数（方便单测），颜色与 Bot API 9.4 style 对应：danger 红 / success 绿 / primary 蓝。
+    // 预览按 TG 里的样子渲染：矩阵一行 = 预览里一排，并排按钮等宽并列。
     function tplButtonsPreviewHtml(matrix) {
-      const rows = (Array.isArray(matrix) ? matrix : []).flatMap(row => Array.isArray(row) ? row : [row])
-        .filter(b => b && (b.text || b.url));
+      const rows = (Array.isArray(matrix) ? matrix : [])
+        .map(row => (Array.isArray(row) ? row : [row]).filter(b => b && (b.text || b.url)))
+        .filter(r => r.length);
       if (!rows.length) return '';
       const cls = {
         danger: 'bg-red-500/25 border-red-400/50 text-red-200',
         success: 'bg-emerald-500/25 border-emerald-400/50 text-emerald-200',
         primary: 'bg-sky-500/25 border-sky-400/50 text-sky-200'
       };
-      return rows.map(b => {
-        const c = cls[b.style] || 'bg-white/5 border-white/15 text-violet-300';
-        return `<div class="mt-1.5 py-1.5 px-2 rounded-lg border text-center font-medium truncate ${c}">🔗 ${escapeHtml(b.text || b.url || '')} ↗</div>`;
+      return rows.map(r => {
+        const btns = r.map(b => {
+          const c = cls[b.style] || 'bg-white/5 border-white/15 text-violet-300';
+          return `<div class="flex-1 min-w-0 py-1.5 px-2 rounded-lg border text-center font-medium truncate ${c}">🔗 ${escapeHtml(b.text || b.url || '')} ↗</div>`;
+        }).join('');
+        return `<div class="mt-1.5 flex gap-1.5">${btns}</div>`;
       }).join('');
     }
     // 从按钮编辑器读当前按钮行（不弹 toast、不拦保存，预览只管显示；原文框模式直接读 JSON）
@@ -3376,13 +3440,17 @@
       }
       const matrix = [];
       document.querySelectorAll('#tpl-buttons-editor .tpl-btn-row').forEach(row => {
-        const text = (row.querySelector('.tpl-btn-text').value || '').trim();
-        const url = (row.querySelector('.tpl-btn-url').value || '').trim();
-        const style = row.querySelector('.tpl-btn-style').value || '';
-        if (!text && !url) return;
-        const btn = { text, url };
-        if (style) btn.style = style;
-        matrix.push([btn]);
+        const btns = [];
+        row.querySelectorAll('.tpl-btn-slot').forEach(slot => {
+          const text = (slot.querySelector('.tpl-btn-text').value || '').trim();
+          const url = (slot.querySelector('.tpl-btn-url').value || '').trim();
+          const style = slot.querySelector('.tpl-btn-style').value || '';
+          if (!text && !url) return;
+          const btn = { text, url };
+          if (style) btn.style = style;
+          btns.push(btn);
+        });
+        if (btns.length) matrix.push(btns);
       });
       return matrix;
     }
