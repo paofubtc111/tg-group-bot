@@ -6,7 +6,7 @@
 // - 一行一个按钮 -> 一排一个按钮
 // - 一行两个按钮 -> 同一排里两个按钮并排（一个 flex 行，两个按钮块）
 // - 混合矩阵 [[A,B],[C]] -> 两排，共 3 个按钮
-// - 颜色 class：danger 红 / success 绿 / primary 蓝 / 默认紫灰
+// - 颜色 class：danger 红 / success 绿 / primary 蓝 / 默认主色蓝（M3 浅色 token）
 // - 按钮文字转义（<script> 不原样输出）
 const fs = require('fs');
 const path = require('path');
@@ -59,10 +59,10 @@ check('混合矩阵 [[A,B],[C]] -> 两排共 3 个按钮',
       [{ text: 'C', url: 'https://c' }]]);
     return count(h, 'flex gap-1.5') === 2 && count(h, 'flex-1 ') === 3;
   })());
-check('danger 是红色', tplButtonsPreviewHtml([[{ text: '红', url: 'https://x', style: 'danger' }]]).includes('bg-red-500/25'));
-check('success 是绿色', tplButtonsPreviewHtml([[{ text: '绿', url: 'https://x', style: 'success' }]]).includes('bg-emerald-500/25'));
-check('primary 是蓝色', tplButtonsPreviewHtml([[{ text: '蓝', url: 'https://x', style: 'primary' }]]).includes('bg-sky-500/25'));
-check('默认是紫灰色', tplButtonsPreviewHtml([[{ text: '默', url: 'https://x' }]]).includes('text-violet-300'));
+check('danger 是红色', tplButtonsPreviewHtml([[{ text: '红', url: 'https://x', style: 'danger' }]]).includes('bg-[var(--md-error-container)]'));
+check('success 是绿色', tplButtonsPreviewHtml([[{ text: '绿', url: 'https://x', style: 'success' }]]).includes('bg-[var(--md-success-container)]'));
+check('primary 是蓝色', tplButtonsPreviewHtml([[{ text: '蓝', url: 'https://x', style: 'primary' }]]).includes('bg-[var(--md-primary-container)]'));
+check('默认是主色蓝', tplButtonsPreviewHtml([[{ text: '默', url: 'https://x' }]]).includes('text-[var(--md-primary)]'));
 check('按钮文字转义，不原样输出 <script>',
   (() => {
     const h = tplButtonsPreviewHtml([[{ text: '<script>alert(1)</script>', url: 'https://x' }]]);
