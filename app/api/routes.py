@@ -518,6 +518,71 @@ async def api_save_captcha(
     return {"status": "ok", "captcha": updated}
 
 
+# ==================== 2b. 验证黑名单 ====================
+# 只记验证超时被永久禁言的人（reason='captcha_timeout'）；成员管理的手动禁言不进这个表。
+
+
+@api_router.get("/api/group/{group_id}/blacklist")
+async def api_get_blacklist(
+    group_id: int, request: Request, user: dict = Depends(get_current_user)
+) -> dict:
+    await require_group_admin(request, group_id, user)
+    await ensure_group_initialized(group_id)
+
+    async with get_db() as db:
+        rows = await db.fetch(
+            "SELECT * FROM group_blacklist WHERE group_id = ?"
+            " ORDER BY created_at DESC, user_id ASC",
+            (group_id,),
+        )
+    return {"blacklist": rows, "total": len(rows)}
+
+
+@api_router.post("/api/group/{group_id}/blacklist/{user_id}/unmute")
+async def api_blacklist_unmute(
+    group_id: int,
+    user_id: int,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    await require_group_admin(request, group_id, user)
+
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT * FROM group_blacklist WHERE group_id = ? AND user_id = ?",
+            (group_id, user_id),
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="该用户不在验证黑名单中")
+
+    bot = getattr(request.app.state, "bot", None)
+    if bot is None:
+        raise HTTPException(status_code=503, detail="Bot 未在线，无法执行解除禁言")
+
+    try:
+        await bot.restrict_chat_member(
+            group_id, user_id, permissions=UNRESTRICTED_PERMISSIONS
+        )
+    except Exception as exc:
+        logger.warning("解除验证黑名单禁言失败 (user=%s): %s", user_id, exc)
+        raise HTTPException(status_code=500, detail=f"Telegram 执行失败: {exc}")
+
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM group_blacklist WHERE group_id = ? AND user_id = ?",
+            (group_id, user_id),
+        )
+
+    await record_audit_log(
+        group_id,
+        int(user["id"]),
+        user.get("first_name") or user.get("username") or "Admin",
+        "blacklist_unmute",
+        f"管理员解除验证黑名单用户 {user_id} 的禁言",
+    )
+    return {"status": "ok", "user_id": user_id}
+
+
 # ==================== 3. 独立消息模板库 ====================
 # 模板归属模型（2026-11-27 中档隔离：按管理员 user_id 隔离，仅模板表）：
 # - 全局模板 (group_id 为 NULL, owner 为 NULL)：所有人可见，只有超级管理员能改。

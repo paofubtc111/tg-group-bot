@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS pending_verifications (
     UNIQUE(group_id, user_id)
 );
 
+-- 4b. 验证黑名单：验证超时被永久禁言的用户（只记 captcha_timeout），面板可一键解除禁言
+CREATE TABLE IF NOT EXISTS group_blacklist (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    user_name TEXT DEFAULT '',
+    reason TEXT DEFAULT 'captcha_timeout',  -- 'captcha_timeout' (超时未通过验证)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (group_id, user_id),
+    FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
+);
+
 -- 5. 入群欢迎配置表 (关联消息模板)
 CREATE TABLE IF NOT EXISTS group_welcome_settings (
     group_id INTEGER PRIMARY KEY,

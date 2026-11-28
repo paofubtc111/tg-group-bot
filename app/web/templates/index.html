@@ -490,6 +490,25 @@
       </div>
     </section>
 
+    <!-- ==================== 视图：🚫 验证黑名单 (blacklist, v4.3) ==================== -->
+    <section id="view-blacklist" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] space-y-4">
+        <div class="flex items-center justify-between border-b border-[var(--md-outline-variant)] pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-[var(--md-on-surface)] flex items-center gap-2">🚫 验证黑名单</h2>
+            <p class="text-xs text-[var(--md-on-surface-variant)] mt-0.5">验证超时被永久禁言的用户，只记验证超时的人；点“解除禁言”后他可以在群里正常发言</p>
+          </div>
+          <button type="button" onclick="loadBlacklist()" class="px-3 py-1.5 rounded-xl bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-xs text-[var(--md-on-surface)] border border-[var(--md-outline-variant)]">刷新列表</button>
+        </div>
+
+        <div id="blacklist-list" class="space-y-2"></div>
+
+        <div class="flex items-center justify-between pt-1">
+          <span id="blacklist-total-label" class="text-xs text-[var(--md-on-surface-variant)]">共 0 人</span>
+        </div>
+      </div>
+    </section>
+
     <!-- ==================== 视图 3: 💌 事件消息管理 (Welcome) ==================== -->
     <section id="view-welcome" class="hidden space-y-4">
       <div class="p-4 rounded-2xl bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] space-y-4">
@@ -1684,6 +1703,15 @@
         category: '入群管理'
       },
       {
+        id: 'blacklist',
+        icon: '🚫',
+        title: '验证黑名单',
+        desc: '验证超时被永久禁言的用户列表，可一键解除禁言',
+        keywords: '黑名单 禁言 解除 验证超时 blacklist',
+        badgeKey: 'blacklist',
+        category: '入群管理'
+      },
+      {
         id: 'welcome',
         icon: '💌',
         title: '事件消息管理',
@@ -1939,6 +1967,12 @@
         '-1001889002': { group_id: -1001889002, enabled: true, captcha_type: 'choice', timeout: 90, action_on_fail: 'kick', auto_delete_prompt: true },
         '-1001889003': { group_id: -1001889003, enabled: false, captcha_type: 'click', timeout: 60, action_on_fail: 'ban', auto_delete_prompt: true }
       },
+      blacklist: {
+        '-1001889002': [
+          { group_id: -1001889002, user_id: 777888999, user_name: '小明', reason: 'captcha_timeout', created_at: '2026-11-28 12:00:00' }
+        ],
+        '-1001889003': []
+      },
       templates: [
         {
           template_id: 1,
@@ -2076,6 +2110,7 @@
       membersTotal: 0,
       membersPage: 1,
       membersQuery: '',
+      blacklist: [],
       messages: [],
       messagesTotal: 0,
       messagesPage: 1,
@@ -2461,6 +2496,19 @@
         list = list.slice((page - 1) * pageSize, page * pageSize);
         return { members: list, total, page, page_size: pageSize, admin_ids: list.filter(m => m.is_admin).map(m => m.user_id) };
       }
+      if (sub === 'blacklist') {
+        const list = (mockStore.blacklist[gKey] || []).slice();
+        return { blacklist: list, total: list.length };
+      }
+      if (sub.startsWith('blacklist/') && sub.endsWith('/unmute') && method === 'POST') {
+        const uid = Number(sub.split('/')[1]);
+        const list = mockStore.blacklist[gKey] || [];
+        const idx = list.findIndex(b => b.user_id === uid);
+        if (idx < 0) return { status: 'error', detail: '该用户不在验证黑名单中' };
+        list.splice(idx, 1);
+        pushMockLog(gid, 'blacklist_unmute', `管理员解除验证黑名单用户 ${uid} 的禁言`);
+        return { status: 'ok', user_id: uid };
+      }
       if (sub.startsWith('members/') && sub.endsWith('/action') && method === 'POST') {
         const uid = Number(sub.split('/')[1]);
         pushMockLog(gid, `member_${body.action}`, `管理员对用户 ${uid} 执行${body.action}`);
@@ -2721,7 +2769,7 @@
     // ==================== 4. 视图路由与中枢卡片渲染 ====================
     function navigateToView(viewId) {
       appState.currentView = viewId;
-      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'ai-news', 'fortune', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons', 'bot-welcome', 'bot-menu'];
+      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'blacklist', 'welcome', 'llm', 'ai-news', 'fortune', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons', 'bot-welcome', 'bot-menu'];
       allViews.forEach(v => {
         const sec = document.getElementById(`view-${v}`);
         if (sec) sec.classList.toggle('hidden', v !== viewId);
@@ -2764,6 +2812,7 @@
       const v = appState.currentView;
       if (v === 'whitelist') loadWhitelist();
       else if (v === 'members') loadMembers(appState.membersPage);
+      else if (v === 'blacklist') loadBlacklist();
       else if (v === 'messages') loadMessages(appState.messagesPage);
       else if (v === 'keywords') loadKeywordReplies();
       else if (v === 'scheduled') loadScheduled();
@@ -2878,6 +2927,8 @@
           return (appState.botMenu && appState.botMenu.enabled)
             ? `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-success-container)] text-[var(--md-success)] border border-[var(--md-success)]">已启用</span>`
             : `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-surface-container-low)] text-[var(--md-on-surface-variant)]">已停用</span>`;
+        case 'blacklist':
+          return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-error-container)] text-[var(--md-error)] border border-[var(--md-error)]">${(appState.blacklist || []).length} 人禁言</span>`;
         default:
           return '';
       }
@@ -4675,6 +4726,62 @@
         await loadMembers(appState.membersPage);
       } else {
         showToast('补录失败：服务端未返回成员信息', 'error');
+      }
+    }
+
+    // --- 8.2b 验证黑名单 (blacklist, v4.3) ---
+    async function loadBlacklist() {
+      const res = await apiRequest('GET', `/api/group/${appState.activeGroupId}/blacklist`);
+      appState.blacklist = (res && res.blacklist) || [];
+      renderBlacklist();
+      renderHubCards();
+    }
+
+    function renderBlacklist() {
+      const container = document.getElementById('blacklist-list');
+      if (!container) return;
+      document.getElementById('blacklist-total-label').textContent = `共 ${(appState.blacklist || []).length} 人`;
+      if (!appState.blacklist || appState.blacklist.length === 0) {
+        container.innerHTML = `<div class="p-6 rounded-xl bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-center text-xs text-[var(--md-on-surface-variant)]">黑名单为空（验证超时被永久禁言的用户会出现在这里）</div>`;
+        return;
+      }
+      const reasonText = { captcha_timeout: '超时未通过验证' };
+      container.innerHTML = appState.blacklist.map(b => {
+        const name = escapeHtml(b.user_name || '用户');
+        const when = b.created_at ? escapeHtml(String(b.created_at).slice(0, 16)) : '';
+        return `
+        <div class="p-3 rounded-xl bg-[var(--md-surface-container)] border border-[var(--md-outline-variant)]">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-[var(--md-error-container)] flex items-center justify-center text-xs font-bold text-[var(--md-error)] shrink-0">${escapeHtml((b.user_name || 'U').slice(0, 1).toUpperCase())}</div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-bold text-[var(--md-on-surface)] truncate">${name}</span>
+                </div>
+                <div class="text-[11px] text-[var(--md-on-surface-variant)]">ID: ${b.user_id} · ${reasonText[b.reason] || escapeHtml(b.reason || '')}${when ? ' · ' + when : ''}</div>
+              </div>
+            </div>
+            <div class="flex flex-wrap justify-end gap-1.5 shrink-0">
+              <button type="button" onclick="unmuteBlacklist(${b.user_id})" class="px-2 py-1 rounded-lg bg-[var(--md-success-container)] hover:bg-[var(--md-success-container)] text-[var(--md-success)] text-[11px]">🔓 解除禁言</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    async function unmuteBlacklist(userId) {
+      let res;
+      try {
+        res = await apiRequest('POST', `/api/group/${appState.activeGroupId}/blacklist/${userId}/unmute`);
+      } catch (err) {
+        showToast('解除失败：' + (err.message || '请求失败'), 'error');
+        return;
+      }
+      if (res && res.status === 'ok') {
+        showToast('已解除禁言');
+        await loadBlacklist();
+      } else {
+        showToast('解除失败：Bot 未在线或无权限', 'error');
       }
     }
 

@@ -70,6 +70,14 @@ EMOJI_POOL = [
 ]
 
 
+def _admin_approve_button(group_id: int, user_id: int) -> InlineKeyboardButton:
+    """验证卡片上的“管理员验证”按钮：管理员点一下直接代为通过。"""
+    return InlineKeyboardButton(
+        text="👮 管理员验证",
+        callback_data=f"capadmin:{group_id}:{user_id}",
+    )
+
+
 def _build_captcha_challenge(
     captcha_type: str, group_id: int, user_id: int
 ) -> Tuple[str, str, InlineKeyboardMarkup]:
@@ -89,7 +97,8 @@ def _build_captcha_challenge(
                         text="✅ 点击验证我是人类",
                         callback_data=f"cap:{group_id}:{user_id}:human",
                     )
-                ]
+                ],
+                [_admin_approve_button(group_id, user_id)],
             ]
         )
         return question_desc, expected, kb
@@ -111,7 +120,9 @@ def _build_captcha_challenge(
             )
             for emo, _ in candidates[3:]
         ]
-        kb = InlineKeyboardMarkup(inline_keyboard=[row1, row2])
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[row1, row2, [_admin_approve_button(group_id, user_id)]]
+        )
         return question_desc, expected, kb
 
     # 默认 math 四则算术模式
@@ -138,7 +149,9 @@ def _build_captcha_challenge(
         )
         for val in shuffled
     ]
-    kb = InlineKeyboardMarkup(inline_keyboard=[buttons])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[buttons, [_admin_approve_button(group_id, user_id)]]
+    )
     return question_desc, expected, kb
 
 
@@ -318,8 +331,15 @@ async def _verification_timeout_worker(
             logger.warning("超时处罚用户失败 (group=%s, user=%s): %s", chat_id, user_id, exc)
 
         if action_on_fail == "mute_permanent" and punished:
+            full_name = None
             try:
-                mention = f'<a href="tg://user?id={user_id}">用户 {user_id}</a>'
+                member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+                full_name = member.user.full_name
+            except Exception:
+                full_name = None
+            display = html.escape(full_name) if full_name else f"用户 {user_id}"
+            try:
+                mention = f'<a href="tg://user?id={user_id}">{display}</a>'
                 await bot.send_message(
                     chat_id=chat_id,
                     text=(
@@ -330,6 +350,21 @@ async def _verification_timeout_worker(
                 )
             except Exception:
                 pass
+            # 写入本群验证黑名单（同一群同一人重复禁言只留一条）
+            try:
+                async with get_db() as db:
+                    await db.execute(
+                        "INSERT INTO group_blacklist (group_id, user_id, user_name, reason)"
+                        " VALUES (?, ?, ?, 'captcha_timeout')"
+                        " ON CONFLICT(group_id, user_id) DO UPDATE SET"
+                        " user_name = excluded.user_name,"
+                        " created_at = CURRENT_TIMESTAMP",
+                        (chat_id, user_id, full_name or f"用户 {user_id}"),
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "写入验证黑名单失败 (group=%s, user=%s): %s", chat_id, user_id, exc
+                )
 
         if auto_delete:
             try:
@@ -393,6 +428,61 @@ async def on_new_chat_members_message(message: Message, bot: Bot) -> None:
             )
 
 
+async def _complete_captcha_pass(
+    bot: Bot,
+    group_id: int,
+    target_user_id: int,
+    pending,
+    cfg,
+    *,
+    target_user,
+    audit_action: str,
+    audit_detail: str,
+    audit_actor_id: int,
+    audit_actor_name: str,
+) -> None:
+    """
+    验证通过的公共收尾（本人答对与管理员代通过共用）：删 pending、取消超时协程、
+    记审计、恢复发言、按配置删卡片、发欢迎语。target_user 为 None 时跳过欢迎语。
+    """
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM pending_verifications WHERE group_id = ? AND user_id = ?",
+            (group_id, target_user_id),
+        )
+
+    # 取消后台超时监控协程
+    task = _active_tasks.pop((group_id, target_user_id), None)
+    if task and not task.done():
+        task.cancel()
+
+    await record_audit_log(
+        group_id, audit_actor_id, audit_actor_name, audit_action, audit_detail
+    )
+
+    # 恢复用户正常发言权限
+    try:
+        await bot.restrict_chat_member(
+            chat_id=group_id,
+            user_id=target_user_id,
+            permissions=UNRESTRICTED_PERMISSIONS,
+        )
+    except Exception as exc:
+        logger.warning("恢复用户发言权限失败: %s", exc)
+
+    # 自动删除验证题消息（清理群聊屏幕）
+    auto_delete = bool(cfg.get("auto_delete_prompt", True)) if cfg else True
+    if auto_delete:
+        try:
+            await bot.delete_message(chat_id=group_id, message_id=pending["message_id"])
+        except Exception:
+            pass
+
+    # 触发入群欢迎语发送流程
+    if target_user is not None:
+        await trigger_welcome(bot, group_id, target_user)
+
+
 @router.callback_query(F.data.startswith("cap:"))
 async def on_captcha_callback(query: CallbackQuery, bot: Bot) -> None:
     """
@@ -429,47 +519,87 @@ async def on_captcha_callback(query: CallbackQuery, bot: Bot) -> None:
             await query.answer("❌ 验证答案不正确，请重试！", show_alert=True)
             return
 
-        # 验证通过：移除待验证记录
-        await db.execute(
-            "DELETE FROM pending_verifications WHERE group_id = ? AND user_id = ?",
-            (group_id, target_user_id),
-        )
-
-    # 取消后台超时监控协程
-    task = _active_tasks.pop((group_id, target_user_id), None)
-    if task and not task.done():
-        task.cancel()
-
     await query.answer("✅ 验证通过，欢迎入群！", show_alert=False)
 
-    await record_audit_log(
+    await _complete_captcha_pass(
+        bot,
         group_id,
         target_user_id,
-        query.from_user.full_name or "新成员",
-        "captcha_passed",
-        f"用户 {target_user_id} 通过入群验证",
+        pending,
+        cfg,
+        target_user=query.from_user,
+        audit_action="captcha_passed",
+        audit_detail=f"用户 {target_user_id} 通过入群验证",
+        audit_actor_id=target_user_id,
+        audit_actor_name=query.from_user.full_name or "新成员",
     )
 
-    # 恢复用户正常发言权限
+
+@router.callback_query(F.data.startswith("capadmin:"))
+async def on_captcha_admin_approve(query: CallbackQuery, bot: Bot) -> None:
+    """
+    管理员代为验证通过：仅群管理员可点，通过后走与答对相同的收尾流程。
+    """
+    parts = (query.data or "").split(":", 2)
+    if len(parts) != 3:
+        await query.answer("无效的验证数据", show_alert=True)
+        return
+
+    _, group_id_str, target_uid_str = parts
     try:
-        await bot.restrict_chat_member(
-            chat_id=group_id,
-            user_id=target_user_id,
-            permissions=UNRESTRICTED_PERMISSIONS,
+        group_id = int(group_id_str)
+        target_user_id = int(target_uid_str)
+    except ValueError:
+        await query.answer("无效的验证数据", show_alert=True)
+        return
+
+    async with get_db() as db:
+        pending = await db.fetchrow(
+            "SELECT * FROM pending_verifications WHERE group_id = ? AND user_id = ?",
+            (group_id, target_user_id),
         )
-    except Exception as exc:
-        logger.warning("恢复用户发言权限失败: %s", exc)
+        if not pending:
+            await query.answer("该验证已过期或已完成！", show_alert=True)
+            return
 
-    # 自动删除验证题消息（清理群聊屏幕）
-    auto_delete = bool(cfg.get("auto_delete_prompt", True)) if cfg else True
-    if auto_delete:
-        try:
-            await bot.delete_message(chat_id=group_id, message_id=pending["message_id"])
-        except Exception:
-            pass
+        cfg = await db.fetchrow(
+            "SELECT * FROM group_captcha_settings WHERE group_id = ?", (group_id,)
+        )
 
-    # 触发入群欢迎语发送流程
-    await trigger_welcome(bot, group_id, query.from_user)
+    # 校验点击者是该群管理员
+    try:
+        member = await bot.get_chat_member(chat_id=group_id, user_id=query.from_user.id)
+        is_admin = member.status in ("administrator", "creator")
+    except Exception:
+        is_admin = False
+    if not is_admin:
+        await query.answer("只有群管理员可以代为验证", show_alert=True)
+        return
+
+    # 取目标用户对象（用于欢迎语）；取不到就跳过欢迎语
+    target_user = None
+    try:
+        target_member = await bot.get_chat_member(
+            chat_id=group_id, user_id=target_user_id
+        )
+        target_user = target_member.user
+    except Exception:
+        target_user = None
+
+    await query.answer("✅ 已代为验证通过！", show_alert=False)
+
+    await _complete_captcha_pass(
+        bot,
+        group_id,
+        target_user_id,
+        pending,
+        cfg,
+        target_user=target_user,
+        audit_action="captcha_admin_approved",
+        audit_detail=f"管理员 {query.from_user.id} 代为通过用户 {target_user_id} 的入群验证",
+        audit_actor_id=query.from_user.id,
+        audit_actor_name=query.from_user.full_name or "管理员",
+    )
 
 
 async def recover_pending_verifications(bot: Bot) -> None:
