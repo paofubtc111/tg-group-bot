@@ -469,6 +469,7 @@
             <select id="cap-fail-action" onchange="renderCaptchaPreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]">
               <option value="kick">踢出群聊 (Kick 可重新申请)</option>
               <option value="ban">永久封禁拉黑 (Ban)</option>
+              <option value="mute_permanent">永久禁言（不移除，可联系管理员解除）</option>
             </select>
           </div>
         </div>
@@ -3210,7 +3211,8 @@
       }
       const cType = document.getElementById('cap-type').value;
       const timeout = document.getElementById('cap-timeout').value || 60;
-      const failAction = document.getElementById('cap-fail-action').value === 'ban' ? '封禁拉黑' : '移出群聊';
+      const failActionVal = document.getElementById('cap-fail-action').value;
+      const failAction = failActionVal === 'ban' ? '封禁拉黑' : failActionVal === 'mute_permanent' ? '永久禁言（可联系管理员解除）' : '移出群聊';
 
       let questionHtml = '';
       let buttonsHtml = '';

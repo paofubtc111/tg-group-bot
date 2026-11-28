@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS group_captcha_settings (
     enabled BOOLEAN DEFAULT TRUE,
     captcha_type TEXT DEFAULT 'math',        -- 'click' (单选), 'math' (四则算术), 'choice' (图符匹配)
     timeout INTEGER DEFAULT 60,              -- 超时秒数 (默认 60s)
-    action_on_fail TEXT DEFAULT 'kick',      -- 'kick' (踢出可再进) 或 'ban' (拉黑)
+    action_on_fail TEXT DEFAULT 'kick',      -- 'kick' (踢出可再进) 或 'ban' (拉黑) 或 'mute_permanent' (永久禁言、不移除)
     auto_delete_prompt BOOLEAN DEFAULT TRUE, -- 完成/超时后是否自动删除验证题
     FOREIGN KEY(group_id) REFERENCES group_settings(group_id) ON DELETE CASCADE
 );

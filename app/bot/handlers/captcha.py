@@ -206,11 +206,16 @@ async def handle_new_member_join(bot: Bot, chat_id: int, chat_title: str, user: 
 
     safe_name = html.escape(user.full_name or "新成员")
     mention = f'<a href="tg://user?id={user.id}">{safe_name}</a>'
+    fail_desc = {
+        "kick": "移出群聊",
+        "ban": "封禁拉黑",
+        "mute_permanent": "永久禁言（可联系管理员解除）",
+    }.get(cfg.get("action_on_fail") or "kick", "移出群聊")
     prompt_text = (
         f"🛡️ <b>入群安全验证</b>\n\n"
         f"欢迎 {mention} 加入本群！为防止广告机器人，请在 <b>{timeout_sec} 秒</b> 内完成以下验证：\n"
         f"👉 {question_desc}\n\n"
-        f"<i>⚠️ 超时未完成验证将被系统自动{'移出群聊' if cfg.get('action_on_fail') == 'kick' else '封禁拉黑'}。</i>"
+        f"<i>⚠️ 超时未完成验证将被系统自动{fail_desc}。</i>"
     )
 
     try:
@@ -295,14 +300,36 @@ async def _verification_timeout_worker(
         action_on_fail = (cfg.get("action_on_fail") if cfg else "kick") or "kick"
         auto_delete = bool(cfg.get("auto_delete_prompt", True)) if cfg else True
 
+        punished = True
         try:
             if action_on_fail == "ban":
                 await bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
+            elif action_on_fail == "mute_permanent":
+                await bot.restrict_chat_member(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    permissions=RESTRICTED_PERMISSIONS,
+                )
             else:
                 await bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
                 await bot.unban_chat_member(chat_id=chat_id, user_id=user_id)
         except Exception as exc:
+            punished = False
             logger.warning("超时处罚用户失败 (group=%s, user=%s): %s", chat_id, user_id, exc)
+
+        if action_on_fail == "mute_permanent" and punished:
+            try:
+                mention = f'<a href="tg://user?id={user_id}">用户 {user_id}</a>'
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        f"⏰ {mention} 因超时未完成入群验证，已被永久禁言，仍留在群内；"
+                        "如需解除禁言，请联系管理员。"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
         if auto_delete:
             try:

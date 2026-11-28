@@ -43,7 +43,7 @@ class CaptchaConfigPayload(BaseModel):
     enabled: bool = True
     captcha_type: str = Field(default="math", pattern="^(click|math|choice)$")
     timeout: int = Field(default=60, ge=15, le=600)
-    action_on_fail: str = Field(default="kick", pattern="^(kick|ban)$")
+    action_on_fail: str = Field(default="kick", pattern="^(kick|ban|mute_permanent)$")
     auto_delete_prompt: bool = True
 
 
