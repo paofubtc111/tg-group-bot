@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 import httpx
 from aiogram import Bot, F, Router, types
 from aiogram.enums import ChatAction
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from app.bot.handlers.fortune import check_daily_fortune
 from app.bot.handlers.games import handle_dice_command, handle_lottery_commands
@@ -19,7 +20,11 @@ from app.bot.handlers.group_features import (
     log_group_message,
     track_member_message,
 )
-from app.bot.handlers.moderation import inspect_and_moderate_message
+from app.bot.handlers.moderation import (
+    PANEL_OPEN_BUTTON_TEXT,
+    get_bot_menu_settings,
+    inspect_and_moderate_message,
+)
 from app.bot.handlers.points import award_message_points, handle_points_commands
 from app.config import settings
 from app.database.db import get_db
@@ -131,6 +136,68 @@ async def _save_chat_turn(
         )
 
 
+async def check_bot_menu_reply(message: types.Message, bot: Bot) -> bool:
+    """私聊底部菜单匹配：仅私聊、仅纯文字、精确相等匹配按钮文字。
+
+    命中 reply_text -> 回 payload 并结束；命中 open_panel -> 回一条带
+    web_app 内联按钮的消息并结束；命中 add_to_group -> 回一条带内联 URL
+    按钮的消息（https://t.me/{bot用户名}?startgroup，点开 Telegram 选群器
+    把 bot 拉进群；reply keyboard 本身打不开选群器，所以要这两步）。
+    未命中 / 菜单停用 / 命令文本 -> False，
+    不拦截后续流程（运势、关键词等在前步骤不受影响）。
+    """
+    if message.chat.type != "private" or not message.text:
+        return False
+    text = message.text.strip()
+    if not text or text.startswith("/"):
+        return False
+    menu = await get_bot_menu_settings()
+    if not menu.get("enabled"):
+        return False
+    for btn_row in menu.get("buttons") or []:
+        if not isinstance(btn_row, list):
+            continue
+        for b in btn_row:
+            if not isinstance(b, dict):
+                continue
+            if (b.get("text") or "") != text:
+                continue
+            action = b.get("action") or "reply_text"
+            if action == "open_panel":
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text=PANEL_OPEN_BUTTON_TEXT,
+                                web_app=WebAppInfo(url=settings.WEBAPP_BASE_URL),
+                            )
+                        ]
+                    ]
+                )
+                await message.answer(
+                    "点击下方按钮打开群管可视化控制面板：", reply_markup=kb
+                )
+            elif action == "add_to_group":
+                me = await bot.get_me()
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="选择群组，把 Bot 拉进去",
+                                url=f"https://t.me/{me.username}?startgroup",
+                            )
+                        ]
+                    ]
+                )
+                await message.answer(
+                    "点下方按钮选择群组，把 Bot 拉进去：", reply_markup=kb
+                )
+            else:
+                await message.answer(b.get("payload") or "")
+            return True
+    return False
+
+
 async def query_ollama_chat(
     base_url: str,
     model_name: str,
@@ -184,6 +251,7 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     5. 积分指令 (签到/积分/排行/流水/兑换)
     6. 抽奖与骰子指令 (抽奖/开奖/骰子)
     7. 计算器 / 自动查U
+    7.5 私聊底部菜单 (精确匹配按钮文字，命中则回复并结束)
     8. 若未违规且满足唤醒条件，则路由至本地 Ollama 大模型对话
 
     改名监控不在这里做：它在 GroupTrackerMiddleware 里、补记成员档案之前
@@ -250,6 +318,11 @@ async def group_message_pipeline(message: types.Message, bot: Bot) -> None:
     if is_group and await check_calculator(message, bot):
         return
     if is_group and await check_trc20_balance(message, bot):
+        return
+
+    # 第 7.5 步：私聊底部菜单（精确匹配按钮文字；须在 LLM 步骤之前，
+    # 运势 step 3.7 在前、关键词等在前流程不受影响；未命中不拦截）
+    if await check_bot_menu_reply(message, bot):
         return
 
     chat_id = message.chat.id

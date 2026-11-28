@@ -575,6 +575,61 @@ async def _migrate_pg_columns(conn: "asyncpg.Connection") -> None:
         await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}")
 
 
+# v4.1 机器人私聊欢迎语 / 底部菜单默认内容（与 moderation.py 旧写死文案一致）
+DEFAULT_BOT_WELCOME_TEXT = (
+    "👋 <b>欢迎使用群组自动化管理与本地 AI 交互管家！</b>\n\n"
+    "点击下方按钮即可唤起 <b>Telegram Mini App 控制面板</b>，支持：\n"
+    "• 🛡️ 敏感词与外链/转发安全拦截\n"
+    "• 🧩 入群人机验证（算术/图符/点选）\n"
+    "• 💌 多模板欢迎语与防刷屏定时撤回\n"
+    "• 🤖 本地 Ollama (qwen2.5:7b) 智能对话配置\n"
+    "• ⚡ 紧急全员锁群与配置一键导入导出"
+)
+DEFAULT_BOT_WELCOME_BUTTONS = [
+    [{"text": "🎛️ 打开群管可视化控制面板 (Mini App)", "kind": "webapp"}]
+]
+DEFAULT_BOT_MENU_BUTTONS = [
+    [{"text": "➕ Bot 加入群组", "action": "add_to_group", "payload": ""}],
+    [
+        {"text": "测试1", "action": "reply_text", "payload": "测试"},
+        {"text": "测试2", "action": "reply_text", "payload": "测试"},
+    ],
+    [
+        {"text": "测试3", "action": "reply_text", "payload": "测试"},
+        {"text": "测试4", "action": "reply_text", "payload": "测试"},
+    ],
+]
+
+
+async def _ensure_default_bot_settings() -> None:
+    """确保机器人私聊欢迎语 / 底部菜单单行默认配置存在 (SQLite / PG 共用)。"""
+    async with get_db() as db:
+        existing = await db.fetchrow(
+            "SELECT id FROM bot_welcome_settings WHERE id = ?", (1,)
+        )
+        if not existing:
+            await db.execute(
+                "INSERT INTO bot_welcome_settings (id, text, buttons_json) VALUES (?, ?, ?)",
+                (
+                    1,
+                    DEFAULT_BOT_WELCOME_TEXT,
+                    json.dumps(DEFAULT_BOT_WELCOME_BUTTONS, ensure_ascii=False),
+                ),
+            )
+        existing = await db.fetchrow(
+            "SELECT id FROM bot_menu_settings WHERE id = ?", (1,)
+        )
+        if not existing:
+            await db.execute(
+                "INSERT INTO bot_menu_settings (id, enabled, buttons_json) VALUES (?, ?, ?)",
+                (
+                    1,
+                    1,
+                    json.dumps(DEFAULT_BOT_MENU_BUTTONS, ensure_ascii=False),
+                ),
+            )
+
+
 async def _ensure_default_template() -> None:
     """确保系统默认全局欢迎模板存在 (SQLite / PG 共用)。"""
     async with get_db() as db:
@@ -615,6 +670,7 @@ async def init_db() -> None:
             await conn.execute(schema_sql)
             await _migrate_pg_columns(conn)
         await _ensure_default_template()
+        await _ensure_default_bot_settings()
         return
 
     Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
@@ -628,6 +684,7 @@ async def init_db() -> None:
     await _pool.init_pool()
 
     await _ensure_default_template()
+    await _ensure_default_bot_settings()
 
 
 async def ensure_group_initialized(

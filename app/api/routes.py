@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,9 @@ from app.api.auth import (
 from app.bot.handlers.captcha import UNRESTRICTED_PERMISSIONS
 from app.config import settings
 from app.database.db import (
+    DEFAULT_BOT_MENU_BUTTONS,
+    DEFAULT_BOT_WELCOME_BUTTONS,
+    DEFAULT_BOT_WELCOME_TEXT,
     ensure_group_initialized,
     get_db,
     record_audit_log,
@@ -49,6 +53,32 @@ class ButtonItem(BaseModel):
     style: Optional[str] = Field(default=None, pattern="^(danger|success|primary)$")
     # danger=红 success=绿 primary=蓝；不填=默认色。非法值保存时直接 422，
     # 这样面板里写错颜色能立刻发现，不会静默丢掉。
+
+
+class BotWelcomeButtonItem(BaseModel):
+    text: str
+    kind: str = Field(default="webapp", pattern="^(webapp|url)$")
+    url: Optional[str] = ""
+    style: Optional[str] = Field(default=None, pattern="^(danger|success|primary)$")
+    # webapp=打开 Mini App（用 WEBAPP_BASE_URL），url=外链；style 同模板按钮。
+
+
+class BotWelcomePayload(BaseModel):
+    text: str
+    buttons: List[List[BotWelcomeButtonItem]] = Field(default_factory=list)
+
+
+class BotMenuButtonItem(BaseModel):
+    text: str
+    action: str = Field(
+        default="reply_text", pattern="^(open_panel|reply_text|add_to_group)$"
+    )
+    payload: str = ""
+
+
+class BotMenuPayload(BaseModel):
+    enabled: bool = True
+    buttons: List[List[BotMenuButtonItem]] = Field(default_factory=list)
 
 
 class TemplatePayload(BaseModel):
@@ -738,6 +768,196 @@ async def api_save_welcome(
         f"更新入群欢迎: 开启={payload.enabled}, 模板ID={payload.active_template_id}, TTL={payload.delete_ttl}s",
     )
     return {"status": "ok", "welcome": welcome}
+
+
+# ==================== 4.5 机器人私聊欢迎语与底部菜单 ====================
+# v4.1：私聊 /start 欢迎语与 reply keyboard 菜单改为库里可配（单行 id=1）。
+# 写操作只放行 pao 的两个号；GET 任何面板用户可读。
+# 审计：record_audit_log 要求 group_id 外键关联 group_settings，
+# 这里没有归属群组、group_id=0 在库里不存在会触发外键失败，所以不写
+# admin_audit_logs，改用 logger 记一条（见各 POST 末尾）。
+
+BOT_WELCOME_MENU_EDITORS = {8449446199, 5853665560}
+
+# 与面板 checkTplTagsBalanced（index.html）同一套标签集、同一套栈式配对逻辑
+_BOT_WELCOME_BALANCE_TAGS = {
+    "b", "i", "u", "s", "code", "pre", "a", "blockquote", "tg-spoiler",
+}
+_TAG_RE = re.compile(r"</?([A-Za-z][A-Za-z0-9-]*)(\s[^>]*)?/?>")
+
+
+def _tags_balanced(content: str) -> tuple:
+    """栈式标签配对检查，返回 (ok, tag, reason)，reason 为 'open'/'close'。
+
+    与前端 checkTplTagsBalanced 一致：只看标签集里的标签，自闭合（/>）跳过，
+    闭合标签必须与栈顶配对，否则失败；结束时栈非空即有未闭合标签。
+    """
+    stack: list = []
+    for m in _TAG_RE.finditer(content or ""):
+        name = m.group(1).lower()
+        if name not in _BOT_WELCOME_BALANCE_TAGS:
+            continue
+        raw = m.group(0)
+        if raw.endswith("/>"):
+            continue
+        if raw.startswith("</"):
+            if stack and stack[-1] == name:
+                stack.pop()
+            else:
+                return False, name, "close"
+        else:
+            stack.append(name)
+    if stack:
+        return False, stack[-1], "open"
+    return True, "", ""
+
+
+def _default_bot_welcome() -> dict:
+    return {
+        "id": 1,
+        "text": DEFAULT_BOT_WELCOME_TEXT,
+        "buttons": json.loads(json.dumps(DEFAULT_BOT_WELCOME_BUTTONS)),
+    }
+
+
+def _default_bot_menu() -> dict:
+    return {
+        "id": 1,
+        "enabled": 1,
+        "buttons": json.loads(json.dumps(DEFAULT_BOT_MENU_BUTTONS)),
+    }
+
+
+def _row_to_bot_welcome(row: dict) -> dict:
+    try:
+        buttons = json.loads(row.get("buttons_json") or "[]")
+    except Exception:
+        buttons = json.loads(json.dumps(DEFAULT_BOT_WELCOME_BUTTONS))
+    if not isinstance(buttons, list):
+        buttons = json.loads(json.dumps(DEFAULT_BOT_WELCOME_BUTTONS))
+    return {"id": row["id"], "text": row["text"], "buttons": buttons}
+
+
+def _row_to_bot_menu(row: dict) -> dict:
+    try:
+        buttons = json.loads(row.get("buttons_json") or "[]")
+    except Exception:
+        buttons = json.loads(json.dumps(DEFAULT_BOT_MENU_BUTTONS))
+    if not isinstance(buttons, list):
+        buttons = json.loads(json.dumps(DEFAULT_BOT_MENU_BUTTONS))
+    return {
+        "id": row["id"],
+        "enabled": int(row.get("enabled") or 0),
+        "buttons": buttons,
+    }
+
+
+def _require_bot_settings_editor(user: dict) -> int:
+    uid = int(user["id"])
+    if uid not in BOT_WELCOME_MENU_EDITORS:
+        raise HTTPException(
+            status_code=403,
+            detail="无权修改机器人欢迎语/菜单：仅限指定管理员",
+        )
+    return uid
+
+
+@api_router.get("/api/bot-welcome")
+async def api_get_bot_welcome(user: dict = Depends(get_current_user)) -> dict:
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT * FROM bot_welcome_settings WHERE id = ?", (1,)
+        )
+    if not row:
+        return {"bot_welcome": _default_bot_welcome()}
+    return {"bot_welcome": _row_to_bot_welcome(row)}
+
+
+@api_router.post("/api/bot-welcome")
+async def api_save_bot_welcome(
+    payload: BotWelcomePayload, user: dict = Depends(get_current_user)
+) -> dict:
+    uid = _require_bot_settings_editor(user)
+    ok, tag, reason = _tags_balanced(payload.text)
+    if not ok:
+        if reason == "open":
+            detail = f"标签 <{tag}> 未闭合，请补上 </{tag}> 再保存"
+        else:
+            detail = f"多余的闭合标签 </{tag}>，请检查后再保存"
+        raise HTTPException(status_code=400, detail=detail)
+    for btn_row in payload.buttons:
+        for b in btn_row:
+            if b.kind == "url" and not (b.url or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="url 类型按钮必须填写链接",
+                )
+    buttons_json = json.dumps(
+        [[b.model_dump() for b in row] for row in payload.buttons],
+        ensure_ascii=False,
+    )
+    async with get_db() as db:
+        existing = await db.fetchrow(
+            "SELECT id FROM bot_welcome_settings WHERE id = ?", (1,)
+        )
+        if existing:
+            await db.execute(
+                "UPDATE bot_welcome_settings SET text = ?, buttons_json = ? WHERE id = ?",
+                (payload.text, buttons_json, 1),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO bot_welcome_settings (id, text, buttons_json) VALUES (?, ?, ?)",
+                (1, payload.text, buttons_json),
+            )
+        row = await db.fetchrow(
+            "SELECT * FROM bot_welcome_settings WHERE id = ?", (1,)
+        )
+    logger.info("机器人欢迎语已更新: operator_id=%s", uid)
+    return {"bot_welcome": _row_to_bot_welcome(row)}
+
+
+@api_router.get("/api/bot-menu")
+async def api_get_bot_menu(user: dict = Depends(get_current_user)) -> dict:
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT * FROM bot_menu_settings WHERE id = ?", (1,)
+        )
+    if not row:
+        return {"bot_menu": _default_bot_menu()}
+    return {"bot_menu": _row_to_bot_menu(row)}
+
+
+@api_router.post("/api/bot-menu")
+async def api_save_bot_menu(
+    payload: BotMenuPayload, user: dict = Depends(get_current_user)
+) -> dict:
+    uid = _require_bot_settings_editor(user)
+    buttons_json = json.dumps(
+        [[b.model_dump() for b in row] for row in payload.buttons],
+        ensure_ascii=False,
+    )
+    async with get_db() as db:
+        existing = await db.fetchrow(
+            "SELECT id FROM bot_menu_settings WHERE id = ?", (1,)
+        )
+        if existing:
+            await db.execute(
+                "UPDATE bot_menu_settings SET enabled = ?, buttons_json = ? WHERE id = ?",
+                (int(payload.enabled), buttons_json, 1),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO bot_menu_settings (id, enabled, buttons_json) VALUES (?, ?, ?)",
+                (1, int(payload.enabled), buttons_json),
+            )
+        row = await db.fetchrow(
+            "SELECT * FROM bot_menu_settings WHERE id = ?", (1,)
+        )
+    logger.info(
+        "机器人底部菜单已更新: operator_id=%s enabled=%s", uid, payload.enabled
+    )
+    return {"bot_menu": _row_to_bot_menu(row)}
 
 
 # ==================== 5. 内容安全审计与敏感词 ====================

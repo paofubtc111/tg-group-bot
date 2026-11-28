@@ -1,5 +1,6 @@
 import asyncio
 import html
+import json
 import logging
 import re
 from typing import Optional
@@ -10,17 +11,164 @@ from aiogram.types import (
     ChatPermissions,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
     WebAppInfo,
 )
 
 from app.config import settings
-from app.database.db import get_db, record_audit_log
+from app.database.db import (
+    DEFAULT_BOT_MENU_BUTTONS,
+    DEFAULT_BOT_WELCOME_BUTTONS,
+    DEFAULT_BOT_WELCOME_TEXT,
+    get_db,
+    record_audit_log,
+)
 
 logger = logging.getLogger(__name__)
 router = Router(name="moderation_router")
 
 TG_LINK_REGEX = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me|telegram\.dog)/[a-zA-Z0-9_+@-]+", re.IGNORECASE)
 GENERAL_URL_REGEX = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+
+# v4.1：机器人私聊欢迎语 / 底部菜单（库里可配，见 bot_welcome_settings / bot_menu_settings）
+PANEL_OPEN_BUTTON_TEXT = "🎛️ 打开群管可视化控制面板 (Mini App)"
+MENU_HINT_TEXT = "👇 点下方菜单使用功能"
+_VALID_BUTTON_STYLES = ("danger", "success", "primary")
+
+
+def _default_bot_welcome() -> dict:
+    return {
+        "id": 1,
+        "text": DEFAULT_BOT_WELCOME_TEXT,
+        "buttons": json.loads(json.dumps(DEFAULT_BOT_WELCOME_BUTTONS)),
+    }
+
+
+def _default_bot_menu() -> dict:
+    return {
+        "id": 1,
+        "enabled": 1,
+        "buttons": json.loads(json.dumps(DEFAULT_BOT_MENU_BUTTONS)),
+    }
+
+
+async def get_bot_welcome_settings() -> dict:
+    """读机器人私聊欢迎语配置；无行 / 读失败 / 内容或按钮为空时回默认，保证永不发空。"""
+    try:
+        async with get_db() as db:
+            row = await db.fetchrow(
+                "SELECT * FROM bot_welcome_settings WHERE id = ?", (1,)
+            )
+        if row and (row.get("text") or "").strip():
+            try:
+                buttons = json.loads(row.get("buttons_json") or "[]")
+            except Exception:
+                buttons = []
+            if isinstance(buttons, list) and buttons:
+                return {"id": row["id"], "text": row["text"], "buttons": buttons}
+    except Exception as exc:
+        logger.warning("读取机器人欢迎语配置失败，用默认: %s", exc)
+    return _default_bot_welcome()
+
+
+async def get_bot_menu_settings() -> dict:
+    """读机器人私聊底部菜单配置；无行 / 读失败时回默认（启用 + 4 个测试按钮）。"""
+    try:
+        async with get_db() as db:
+            row = await db.fetchrow(
+                "SELECT * FROM bot_menu_settings WHERE id = ?", (1,)
+            )
+        if row:
+            try:
+                buttons = json.loads(row.get("buttons_json") or "[]")
+            except Exception:
+                buttons = []
+            return {
+                "id": row["id"],
+                "enabled": int(row.get("enabled") or 0),
+                "buttons": buttons if isinstance(buttons, list) else [],
+            }
+    except Exception as exc:
+        logger.warning("读取机器人底部菜单配置失败，用默认: %s", exc)
+    return _default_bot_menu()
+
+
+def build_bot_welcome_keyboard(buttons: list) -> Optional[InlineKeyboardMarkup]:
+    """欢迎语按钮矩阵 -> InlineKeyboard：webapp 用 WEBAPP_BASE_URL，url 带 style。"""
+    rows = []
+    for btn_row in buttons or []:
+        if not isinstance(btn_row, list):
+            continue
+        kb_row = []
+        for b in btn_row:
+            if not isinstance(b, dict):
+                continue
+            text = (b.get("text") or "").strip()
+            if not text:
+                continue
+            style = b.get("style") if b.get("style") in _VALID_BUTTON_STYLES else None
+            if (b.get("kind") or "webapp") == "url":
+                url = (b.get("url") or "").strip()
+                if not url:
+                    continue
+                kb_row.append(
+                    InlineKeyboardButton(text=text, url=url, style=style)
+                )
+            else:
+                kb_row.append(
+                    InlineKeyboardButton(
+                        text=text,
+                        web_app=WebAppInfo(url=settings.WEBAPP_BASE_URL),
+                        style=style,
+                    )
+                )
+        if kb_row:
+            rows.append(kb_row)
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
+def build_bot_menu_keyboard(buttons: list) -> Optional[ReplyKeyboardMarkup]:
+    """菜单按钮矩阵 -> ReplyKeyboardMarkup（空矩阵返回 None，不发键盘）。"""
+    rows = []
+    for btn_row in buttons or []:
+        if not isinstance(btn_row, list):
+            continue
+        kb_row = [
+            KeyboardButton(text=(b.get("text") or "").strip())
+            for b in btn_row
+            if isinstance(b, dict) and (b.get("text") or "").strip()
+        ]
+        if kb_row:
+            rows.append(kb_row)
+    if not rows:
+        return None
+    return ReplyKeyboardMarkup(
+        keyboard=rows, resize_keyboard=True, one_time_keyboard=False
+    )
+
+
+async def _send_private_welcome(message: types.Message) -> None:
+    """私聊欢迎语 + 底部菜单：两条消息（一条消息只能带一种 reply_markup）。"""
+    cfg = await get_bot_welcome_settings()
+    kb = build_bot_welcome_keyboard(cfg["buttons"])
+    if kb is None:  # 兜底：绝不发没有按钮的欢迎语
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=PANEL_OPEN_BUTTON_TEXT,
+                        web_app=WebAppInfo(url=settings.WEBAPP_BASE_URL),
+                    )
+                ]
+            ]
+        )
+    await message.answer(cfg["text"], reply_markup=kb, parse_mode="HTML")
+    menu = await get_bot_menu_settings()
+    if menu.get("enabled"):
+        menu_kb = build_bot_menu_keyboard(menu.get("buttons") or [])
+        if menu_kb is not None:
+            await message.answer(MENU_HINT_TEXT, reply_markup=menu_kb)
 
 
 @router.message(Command("start", "settings", "panel"))
@@ -29,27 +177,7 @@ async def cmd_open_panel(message: types.Message) -> None:
     唤起 Telegram Mini App 可视化群管后台或 안내消息
     """
     if message.chat.type == "private":
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🎛️ 打开群管可视化控制面板 (Mini App)",
-                        web_app=WebAppInfo(url=settings.WEBAPP_BASE_URL),
-                    )
-                ]
-            ]
-        )
-        await message.answer(
-            "👋 <b>欢迎使用群组自动化管理与本地 AI 交互管家！</b>\n\n"
-            "点击下方按钮即可唤起 <b>Telegram Mini App 控制面板</b>，支持：\n"
-            "• 🛡️ 敏感词与外链/转发安全拦截\n"
-            "• 🧩 入群人机验证（算术/图符/点选）\n"
-            "• 💌 多模板欢迎语与防刷屏定时撤回\n"
-            "• 🤖 本地 Ollama (qwen2.5:7b) 智能对话配置\n"
-            "• ⚡ 紧急全员锁群与配置一键导入导出",
-            reply_markup=kb,
-            parse_mode="HTML",
-        )
+        await _send_private_welcome(message)
     else:
         me = await message.bot.get_me()
         kb = InlineKeyboardMarkup(
@@ -66,6 +194,17 @@ async def cmd_open_panel(message: types.Message) -> None:
             "🔒 为保护群组配置隐私，请点击下方按钮在私聊中打开 Mini App 管理面板：",
             reply_markup=kb,
         )
+
+
+@router.message(Command("menu"))
+async def cmd_show_menu(message: types.Message) -> None:
+    """
+    私聊 /menu：重发欢迎语消息，再发一条带底部菜单键盘的短消息。
+    群聊里不响应（菜单只在私聊用）。
+    """
+    if message.chat.type != "private":
+        return
+    await _send_private_welcome(message)
 
 
 @router.message(Command("admin", "report"))

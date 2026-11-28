@@ -577,3 +577,17 @@ CREATE TABLE IF NOT EXISTS ai_news_sends (
     kind TEXT NOT NULL,
     sent_at TEXT DEFAULT ''
 );
+
+-- 47. 机器人私聊欢迎语设置表（单行 id=1；v4.1：欢迎语与按钮可配）
+CREATE TABLE IF NOT EXISTS bot_welcome_settings (
+    id BIGINT PRIMARY KEY,
+    text TEXT NOT NULL,
+    buttons_json TEXT NOT NULL DEFAULT '[]'
+);
+
+-- 48. 机器人私聊底部菜单设置表（单行 id=1；v4.1：reply keyboard 菜单可配）
+CREATE TABLE IF NOT EXISTS bot_menu_settings (
+    id BIGINT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    buttons_json TEXT NOT NULL DEFAULT '[]'
+);

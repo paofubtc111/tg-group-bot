@@ -28,14 +28,14 @@
       --md-on-secondary: #FFFFFF;
       --md-secondary-container: #C2E7FF;
       --md-on-secondary-container: #001D35;
-      --md-surface: #FCFCFF;
+      --md-surface: #F2F4F8;
       --md-surface-dim: #D8DBE0;
-      --md-surface-bright: #FCFCFF;
+      --md-surface-bright: #F2F4F8;
       --md-surface-container-lowest: #FFFFFF;
-      --md-surface-container-low: #F2F5FA;
-      --md-surface-container: #EDF1F7;
-      --md-surface-container-high: #E7EBF2;
-      --md-surface-container-highest: #E1E6EE;
+      --md-surface-container-low: #E9EDF3;
+      --md-surface-container: #E2E7EF;
+      --md-surface-container-high: #D8DEE8;
+      --md-surface-container-highest: #CFD5DF;
       --md-on-surface: #191C20;
       --md-on-surface-variant: #43474E;
       --md-outline: #74777F;
@@ -1523,6 +1523,94 @@
       </div>
     </section>
 
+    <!-- ==================== 视图：🤖 机器人欢迎语 (bot-welcome, v4.1) ==================== -->
+    <section id="view-bot-welcome" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] space-y-4">
+        <div class="flex items-center justify-between border-b border-[var(--md-outline-variant)] pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-[var(--md-on-surface)]">🤖 机器人欢迎语</h2>
+            <p class="text-xs text-[var(--md-on-surface-variant)] mt-0.5">用户私聊机器人发 /start 时看到的欢迎语文字与下方按钮，改完立即生效</p>
+          </div>
+          <button type="button" onclick="saveBotWelcome()" class="px-3.5 py-1.5 rounded-xl bg-[var(--md-primary)] text-[var(--md-on-primary)] font-semibold text-xs transition">
+            💾 保存欢迎语
+          </button>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-[var(--md-surface-container)] border border-[var(--md-outline-variant)] space-y-3">
+          <div>
+            <label class="block text-[11px] text-[var(--md-on-surface-variant)] mb-1">欢迎语正文（支持 HTML 标签）：</label>
+            <div class="flex flex-wrap gap-1 mb-1.5 bw-toolbar">
+              <button type="button" onclick="bwWrapFormat('b')" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] font-bold text-[var(--md-on-surface)]" title="加粗 <b>">B</button>
+              <button type="button" onclick="bwWrapFormat('i')" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] italic text-[var(--md-on-surface)]" title="斜体 <i>">I</button>
+              <button type="button" onclick="bwWrapFormat('u')" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] underline text-[var(--md-on-surface)]" title="下划线 <u>">U</button>
+              <button type="button" onclick="bwWrapFormat('s')" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] line-through text-[var(--md-on-surface)]" title="删除线 <s>">S</button>
+              <button type="button" onclick="bwWrapFormat('code')" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] font-mono text-[var(--md-on-surface)]" title="等宽 <code>">等宽</button>
+              <button type="button" onclick="bwWrapFormat('spoiler')" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="剧透 <tg-spoiler>">剧透</button>
+              <button type="button" onclick="bwWrapFormat('quote')" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="引用 <blockquote>">引用</button>
+              <button type="button" onclick="bwOpenLinkDialog()" class="bw-fmt-btn px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="链接 <a href=&quot;...&quot;>">链接</button>
+            </div>
+            <textarea id="bw-content" rows="4" placeholder="🎉 欢迎使用本机器人！" class="w-full p-2.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)] focus:outline-none focus:border-[var(--md-primary)]"></textarea>
+            <div class="mt-1.5">
+              <label class="block text-[11px] text-[var(--md-on-surface-variant)] mb-1">实时预览（所见即 TG 里的效果，文字 + 按钮）：</label>
+              <div id="bw-content-preview" class="p-3 rounded-xl bg-[var(--md-surface-container)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)] whitespace-pre-wrap break-words"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-[11px] text-[var(--md-on-surface-variant)]">下方按钮（每行 1–2 个并排，可上移下移；打开面板不用填链接，颜色只对普通链接按钮有意义）</label>
+              <button type="button" id="bw-add-btn" onclick="bwAddButtonRow()" class="px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-success)]">＋ 添加一行</button>
+            </div>
+            <div id="bw-buttons-editor" class="space-y-1.5"></div>
+          </div>
+
+          <div id="bw-link-dialog" class="hidden p-2.5 rounded-xl bg-[var(--md-surface-container)] border border-[var(--md-outline-variant)] space-y-2">
+            <label class="block text-[11px] text-[var(--md-on-surface-variant)]">链接地址（https://… 或 tg://…）</label>
+            <input id="bw-link-url" type="text" placeholder="https://..." class="w-full px-2.5 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]" />
+            <div class="flex justify-end gap-2">
+              <button type="button" onclick="bwCloseLinkDialog()" class="px-3 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface-variant)]">取消</button>
+              <button type="button" onclick="bwConfirmLink()" class="px-3 py-1 rounded-lg bg-[var(--md-primary)] text-[11px] text-[var(--md-on-primary)]">插入链接</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 视图：📋 底部菜单 (bot-menu, v4.1) ==================== -->
+    <section id="view-bot-menu" class="hidden space-y-4">
+      <div class="p-4 rounded-2xl bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] space-y-4">
+        <div class="flex items-center justify-between border-b border-[var(--md-outline-variant)] pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-[var(--md-on-surface)]">📋 底部菜单</h2>
+            <p class="text-xs text-[var(--md-on-surface-variant)] mt-0.5">私聊机器人时左下角点开的菜单栏，按钮与回复文字都能改</p>
+          </div>
+          <button type="button" onclick="saveBotMenu()" class="px-3.5 py-1.5 rounded-xl bg-[var(--md-primary)] text-[var(--md-on-primary)] font-semibold text-xs transition">
+            💾 保存菜单
+          </button>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-[var(--md-surface-container)] border border-[var(--md-outline-variant)] space-y-3">
+          <label class="flex items-center gap-2 text-xs text-[var(--md-on-surface)] cursor-pointer">
+            <input id="bm-enabled" type="checkbox" class="w-4 h-4 accent-[var(--md-primary)]" />
+            启用底部菜单（关闭后左下角不再显示菜单按钮）
+          </label>
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-[11px] text-[var(--md-on-surface-variant)]">菜单按钮（每行 1–2 个并排，可上移下移；“打开面板”直接打开控制面板，“回复固定文字”点一下就发那段文字）</label>
+              <button type="button" id="bm-add-btn" onclick="bmAddButtonRow()" class="px-2 py-0.5 rounded bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-success)]">＋ 添加一行</button>
+            </div>
+            <div id="bm-buttons-editor" class="space-y-1.5"></div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] text-[var(--md-on-surface-variant)] mb-1">键盘布局实时预览：</label>
+            <div id="bm-preview" class="p-3 rounded-xl bg-[var(--md-surface-container)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- 底部悬浮固定条 (Fixed Bottom Bar - PRD 3.1) -->
@@ -1685,6 +1773,15 @@
         category: '智能 AI'
       },
       {
+        id: 'bot-welcome',
+        icon: '🤖',
+        title: '机器人欢迎语',
+        desc: '私聊 /start 欢迎语文字与下方按钮，改完立即生效',
+        keywords: '机器人欢迎语 start 私聊 欢迎 bot-welcome',
+        badgeKey: 'bot-welcome',
+        category: '智能 AI'
+      },
+      {
         id: 'fortune',
         icon: '🎋',
         title: '今日运势',
@@ -1818,6 +1915,15 @@
         keywords: '底部按钮 广告 按钮 自定义 bottom buttons',
         badgeKey: 'bottom-buttons',
         category: '内容互动'
+      },
+      {
+        id: 'bot-menu',
+        icon: '📋',
+        title: '底部菜单',
+        desc: '左下角点开的菜单栏，按钮与回复文字都能改',
+        keywords: '底部菜单 菜单栏 键盘 回复 bot-menu',
+        badgeKey: 'bot-menu',
+        category: '内容互动'
       }
     ];
 
@@ -1942,7 +2048,9 @@
       },
       scheduledLockdowns: {},
       lockdownKeywords: {},
-      bottomButtons: {}
+      bottomButtons: {},
+      botWelcome: { id: 1, text: '🎉 欢迎使用本机器人！\n\n点击下方按钮打开群管可视化控制面板。', buttons: [[{ text: '🎛️ 打开群管可视化控制面板 (Mini App)', kind: 'webapp' }]] },
+      botMenu: { id: 1, enabled: 1, buttons: [[{ text: '➕ Bot 加入群组', action: 'add_to_group', payload: '' }], [{ text: '测试1', action: 'reply_text', payload: '测试' }, { text: '测试2', action: 'reply_text', payload: '测试' }], [{ text: '测试3', action: 'reply_text', payload: '测试' }, { text: '测试4', action: 'reply_text', payload: '测试' }]] }
     };
 
     const appState = {
@@ -1998,7 +2106,9 @@
       leaveBan: null,
       renameWatch: null,
       miscSettings: null,
-      bottomButtons: []
+      bottomButtons: [],
+      botWelcome: null,
+      botMenu: null
     };
 
     // ==================== 2. 统一 API 通信与沙盒自适应降级层 ====================
@@ -2109,6 +2219,21 @@
       }
       if (path === '/api/groups') {
         return { groups: mockStore.groups };
+      }
+      // v4.1：机器人欢迎语 / 底部菜单（全局配置，不按群组分）
+      if (path === '/api/bot-welcome') {
+        if (method === 'POST' && body) {
+          mockStore.botWelcome = { id: 1, text: body.text || '', buttons: body.buttons || [] };
+          pushMockLog(appState.activeGroupId, 'save_bot_welcome', '更新机器人欢迎语');
+        }
+        return { bot_welcome: mockStore.botWelcome };
+      }
+      if (path === '/api/bot-menu') {
+        if (method === 'POST' && body) {
+          mockStore.botMenu = { id: 1, enabled: body.enabled ? 1 : 0, buttons: body.buttons || [] };
+          pushMockLog(appState.activeGroupId, 'save_bot_menu', `更新底部菜单: 启用=${body.enabled ? 1 : 0}`);
+        }
+        return { bot_menu: mockStore.botMenu };
       }
       const [cleanPath] = path.split('?');
       const match = cleanPath.match(/^\/api\/group\/(-?\d+)\/(.+)$/);
@@ -2595,7 +2720,7 @@
     // ==================== 4. 视图路由与中枢卡片渲染 ====================
     function navigateToView(viewId) {
       appState.currentView = viewId;
-      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'ai-news', 'fortune', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons'];
+      const allViews = ['hub', 'empty', 'moderation', 'captcha', 'welcome', 'llm', 'ai-news', 'fortune', 'templates', 'emergency', 'logs', 'portability', 'whitelist', 'members', 'messages', 'keywords', 'scheduled', 'forcesub', 'stats', 'points', 'redemptions', 'lotteries', 'guesses', 'dice', 'rotating-ads', 'invites', 'lockdowns', 'misc', 'bottom-buttons', 'bot-welcome', 'bot-menu'];
       allViews.forEach(v => {
         const sec = document.getElementById(`view-${v}`);
         if (sec) sec.classList.toggle('hidden', v !== viewId);
@@ -2653,6 +2778,8 @@
       else if (v === 'lockdowns') loadLockdowns();
       else if (v === 'misc') loadMisc();
       else if (v === 'bottom-buttons') loadBottomButtons();
+      else if (v === 'bot-welcome') populateBotWelcomeForm();
+      else if (v === 'bot-menu') populateBotMenuForm();
     }
 
     function filterHubByCategory(cat) {
@@ -2741,6 +2868,15 @@
           return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-surface-container-low)] text-[var(--md-on-surface-variant)]">服务消息清理</span>`;
         case 'bottom-buttons':
           return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-surface-container-low)] text-[var(--md-on-surface-variant)]">${(appState.bottomButtons || []).filter(b => b.enabled).length} 个按钮</span>`;
+        case 'bot-welcome': {
+          const bwCount = ((appState.botWelcome && appState.botWelcome.buttons) || [])
+            .reduce((n, r) => n + (Array.isArray(r) ? r.length : (r ? 1 : 0)), 0);
+          return `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-surface-container-low)] text-[var(--md-on-surface-variant)]">${bwCount} 个按钮</span>`;
+        }
+        case 'bot-menu':
+          return (appState.botMenu && appState.botMenu.enabled)
+            ? `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-success-container)] text-[var(--md-success)] border border-[var(--md-success)]">已启用</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[11px] bg-[var(--md-surface-container-low)] text-[var(--md-on-surface-variant)]">已停用</span>`;
         default:
           return '';
       }
@@ -2843,13 +2979,15 @@
       }
 
       initTplContentEditor();
+      bwInitEditor();
+      bmInitEditor();
     }
 
     async function refreshAllGroupData() {
       // 没有接入群组时不拉取任何群配置，避免请求 /api/group/null/* 后被演示数据冒充
       if (!appState.activeGroupId) return;
       const gid = appState.activeGroupId;
-      const [ov, cap, tpl, wel, mod, llm, emg, logs, wl, kw, sch, fs, an, ft] = await Promise.all([
+      const [ov, cap, tpl, wel, mod, llm, emg, logs, wl, kw, sch, fs, an, ft, bw, bm] = await Promise.all([
         apiRequest('GET', `/api/group/${gid}/overview`),
         apiRequest('GET', `/api/group/${gid}/captcha`),
         apiRequest('GET', `/api/group/${gid}/templates`),
@@ -2863,7 +3001,9 @@
         apiRequest('GET', `/api/group/${gid}/scheduled`),
         apiRequest('GET', `/api/group/${gid}/force-subscribe`),
         apiRequest('GET', `/api/group/${gid}/ai-news`),
-        apiRequest('GET', `/api/group/${gid}/fortune`)
+        apiRequest('GET', `/api/group/${gid}/fortune`),
+        apiRequest('GET', '/api/bot-welcome'),
+        apiRequest('GET', '/api/bot-menu')
       ]);
 
       appState.overview = ov;
@@ -2883,6 +3023,8 @@
       appState.keywordReplies = (kw && kw.replies) || [];
       appState.scheduled = (sch && sch.scheduled) || [];
       appState.forceSub = (fs && fs.force_subscribe) || null;
+      appState.botWelcome = (bw && bw.bot_welcome) || null;
+      appState.botMenu = (bm && bm.bot_menu) || null;
 
       populateOverviewAndBottomBar();
       populateModerationForm();
@@ -2898,6 +3040,8 @@
       renderKeywordRepliesList();
       renderScheduledList();
       populateForceSubscribeForm();
+      populateBotWelcomeForm();
+      populateBotMenuForm();
       loadCurrentViewModule();
       renderHubCards();
     }
@@ -3610,6 +3754,480 @@
       await apiRequest('DELETE', `/api/group/${appState.activeGroupId}/templates/${tid}`);
       await refreshAllGroupData();
       showToast('模板已删除');
+    }
+
+    // ==================== v4.1 机器人欢迎语（bot-welcome） ====================
+    // 与模板编辑器平行的一套 bw* 函数：只复用 checkTplTagsBalanced（纯字符串函数）
+    // 与 TPL_FORMAT_TAGS；tpl* 函数的签名与行为一字不动。
+    let bwLastSel = null;
+    function bwSaveSel() {
+      const area = document.getElementById('bw-content');
+      if (!area) return;
+      const s = area.selectionStart, e = area.selectionEnd;
+      if (s === null || s === undefined || e === null || e === undefined || s === e) return;
+      bwLastSel = { start: s, end: e, at: Date.now(), len: area.value.length };
+    }
+    function bwSelRange(area) {
+      let start = area.selectionStart ?? area.value.length;
+      let end = area.selectionEnd ?? area.value.length;
+      if (start === end && bwLastSel && Date.now() - bwLastSel.at < 2000
+        && bwLastSel.len === area.value.length && bwLastSel.start !== bwLastSel.end
+        && bwLastSel.end <= area.value.length) {
+        start = bwLastSel.start; end = bwLastSel.end;
+      }
+      bwLastSel = null;
+      return { start, end };
+    }
+    function bwWrapFormat(key) {
+      const tag = TPL_FORMAT_TAGS.find(t => t.key === key);
+      if (!tag) return;
+      const area = document.getElementById('bw-content');
+      if (!area) return;
+      const { start, end } = bwSelRange(area);
+      const selected = area.value.slice(start, end);
+      area.value = area.value.slice(0, start) + tag.open + selected + tag.close + area.value.slice(end);
+      area.focus();
+      const caret = selected ? start + tag.open.length + selected.length + tag.close.length : start + tag.open.length;
+      area.setSelectionRange(caret, caret);
+      bwUpdatePreview();
+    }
+    let bwLinkSel = null;
+    function bwOpenLinkDialog() {
+      const area = document.getElementById('bw-content');
+      if (!area) return;
+      bwLinkSel = bwSelRange(area);
+      document.getElementById('bw-link-url').value = '';
+      document.getElementById('bw-link-dialog').classList.remove('hidden');
+      document.getElementById('bw-link-url').focus();
+    }
+    function bwCloseLinkDialog() {
+      document.getElementById('bw-link-dialog').classList.add('hidden');
+      bwLinkSel = null;
+    }
+    function bwConfirmLink() {
+      const url = (document.getElementById('bw-link-url').value || '').trim();
+      if (!url) { showToast('请填写链接地址', 'error'); return; }
+      if (!/^(https?:\/\/|tg:\/\/)/i.test(url)) { showToast('链接以 https:// 或 tg:// 开头', 'error'); return; }
+      const area = document.getElementById('bw-content');
+      const sel = bwLinkSel || { start: area.value.length, end: area.value.length };
+      const selected = area.value.slice(sel.start, sel.end) || '链接文字';
+      const tag = `<a href="${url.replace(/"/g, '&quot;')}">${selected}</a>`;
+      area.value = area.value.slice(0, sel.start) + tag + area.value.slice(sel.end);
+      bwCloseLinkDialog();
+      area.focus();
+      const caret = sel.start + tag.length;
+      area.setSelectionRange(caret, caret);
+      bwUpdatePreview();
+    }
+
+    // 一个按钮位：文字 + 类型下拉（webapp 打开面板 / url 普通链接）+ 链接 + 颜色。
+    // kind=webapp 时链接输入框隐藏（不用填）；颜色只对 url 按钮有意义。
+    function bwButtonSlotEl(btn) {
+      const slot = document.createElement('div');
+      slot.className = 'bw-btn-slot flex items-center gap-1.5 flex-wrap';
+      slot.innerHTML = `
+        <input type="text" placeholder="按钮文字" class="bw-btn-text flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]" />
+        <select class="bw-btn-kind px-1.5 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]">
+          <option value="webapp">打开面板</option>
+          <option value="url">普通链接</option>
+        </select>
+        <input type="text" placeholder="https://..." class="bw-btn-url flex-[2] min-w-0 px-2 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-warning)] font-mono" />
+        <select class="bw-btn-style px-1.5 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]">
+          <option value="">默认</option>
+          <option value="danger">红</option>
+          <option value="success">绿</option>
+          <option value="primary">蓝</option>
+        </select>
+        <button type="button" class="bw-btn-slot-remove px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-error-container)] text-[11px] text-[var(--md-error)]" title="去掉这个并排按钮">✕</button>`;
+      slot.querySelector('.bw-btn-text').value = btn.text || '';
+      const kind = btn.kind === 'url' ? 'url' : 'webapp';
+      slot.querySelector('.bw-btn-kind').value = kind;
+      slot.querySelector('.bw-btn-url').value = btn.url || '';
+      slot.querySelector('.bw-btn-style').value = ['danger', 'success', 'primary'].includes(btn.style) ? btn.style : '';
+      const syncKind = () => {
+        const k = slot.querySelector('.bw-btn-kind').value;
+        slot.querySelector('.bw-btn-url').classList.toggle('hidden', k !== 'url');
+        slot.querySelector('.bw-btn-style').classList.toggle('hidden', k !== 'url');
+        bwUpdatePreview();
+      };
+      slot.querySelector('.bw-btn-kind').addEventListener('change', syncKind);
+      slot.querySelector('.bw-btn-slot-remove').addEventListener('click', () => {
+        const row = slot.closest('.bw-btn-row');
+        slot.remove();
+        bwRefreshButtonRowControls(row);
+        bwUpdatePreview();
+      });
+      syncKind();
+      return slot;
+    }
+    function bwRefreshButtonRowControls(row) {
+      if (!row) return;
+      const n = row.querySelectorAll('.bw-btn-slot').length;
+      row.querySelector('.bw-btn-sidebyside').style.display = n >= 2 ? 'none' : '';
+      row.querySelector('.bw-btn-swap').style.display = n >= 2 ? '' : 'none';
+      row.querySelectorAll('.bw-btn-slot-remove').forEach(b => { b.style.display = n >= 2 ? '' : 'none'; });
+    }
+    function bwButtonRowEl(buttons) {
+      const row = document.createElement('div');
+      row.className = 'bw-btn-row space-y-1.5 p-2 rounded-xl bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)]';
+      row.innerHTML = `
+        <div class="bw-btn-slots space-y-1.5"></div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button type="button" class="bw-btn-sidebyside px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-success)]" title="在这行再加一个并排按钮">＋ 并排</button>
+          <button type="button" class="bw-btn-swap px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="互换这行两个按钮的左右位置">⇄ 互换</button>
+          <button type="button" class="bw-btn-up px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="整行上移">↑ 上移</button>
+          <button type="button" class="bw-btn-down px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="整行下移">↓ 下移</button>
+          <button type="button" class="bw-btn-remove px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-error-container)] text-[11px] text-[var(--md-error)]" title="删除这一行">✕ 删除本行</button>
+        </div>`;
+      const slots = row.querySelector('.bw-btn-slots');
+      const list = (Array.isArray(buttons) && buttons.length ? buttons : [{ text: '', kind: 'webapp' }]).slice(0, 2);
+      list.forEach(b => slots.appendChild(bwButtonSlotEl(b || {})));
+      row.querySelector('.bw-btn-sidebyside').addEventListener('click', () => {
+        if (slots.querySelectorAll('.bw-btn-slot').length >= 2) return;
+        slots.appendChild(bwButtonSlotEl({ text: '', kind: 'webapp' }));
+        bwRefreshButtonRowControls(row);
+        bwUpdatePreview();
+        slots.querySelectorAll('.bw-btn-text')[slots.children.length - 1].focus();
+      });
+      row.querySelector('.bw-btn-swap').addEventListener('click', () => {
+        const s = slots.querySelectorAll('.bw-btn-slot');
+        if (s.length < 2) return;
+        slots.insertBefore(s[1], s[0]);
+        bwUpdatePreview();
+      });
+      row.querySelector('.bw-btn-up').addEventListener('click', () => {
+        if (row.previousElementSibling) { row.parentNode.insertBefore(row, row.previousElementSibling); bwUpdatePreview(); }
+      });
+      row.querySelector('.bw-btn-down').addEventListener('click', () => {
+        if (row.nextElementSibling) { row.parentNode.insertBefore(row.nextElementSibling, row); bwUpdatePreview(); }
+      });
+      row.querySelector('.bw-btn-remove').addEventListener('click', () => { row.remove(); bwUpdatePreview(); });
+      bwRefreshButtonRowControls(row);
+      return row;
+    }
+    function bwRenderButtonRows(buttons) {
+      const editor = document.getElementById('bw-buttons-editor');
+      if (!editor) return;
+      editor.innerHTML = '';
+      const rows = [];
+      (Array.isArray(buttons) ? buttons : []).forEach(row => {
+        if (Array.isArray(row)) rows.push(row.filter(b => b && typeof b === 'object'));
+        else if (row && typeof row === 'object') rows.push([row]);
+      });
+      if (!rows.length) rows.push([{ text: '🎛️ 打开群管可视化控制面板 (Mini App)', kind: 'webapp' }]);
+      rows.forEach(r => editor.appendChild(bwButtonRowEl(r)));
+    }
+    function bwAddButtonRow() {
+      const editor = document.getElementById('bw-buttons-editor');
+      if (!editor) return;
+      editor.appendChild(bwButtonRowEl([{ text: '', kind: 'webapp' }]));
+      const inputs = editor.querySelectorAll('.bw-btn-row:last-child .bw-btn-text');
+      if (inputs.length) inputs[0].focus();
+      bwUpdatePreview();
+    }
+    // 收集按钮：[[{text, kind, url?, style?}]]；返回 null 表示校验未过（已 toast），调用方中止保存。
+    function bwCollectButtons() {
+      const matrix = [];
+      let bad = '';
+      document.querySelectorAll('#bw-buttons-editor .bw-btn-row').forEach((row, idx) => {
+        const btns = [];
+        row.querySelectorAll('.bw-btn-slot').forEach((slot, sidx) => {
+          const text = (slot.querySelector('.bw-btn-text').value || '').trim();
+          const kind = slot.querySelector('.bw-btn-kind').value || 'webapp';
+          const url = (slot.querySelector('.bw-btn-url').value || '').trim();
+          const style = slot.querySelector('.bw-btn-style').value || '';
+          if (!text && !url) return;
+          if (!text) { bad = `第 ${idx + 1} 行第 ${sidx + 1} 个按钮`; return; }
+          if (kind === 'url' && (!url || !/^(https?:\/\/|tg:\/\/)/i.test(url))) { bad = `第 ${idx + 1} 行第 ${sidx + 1} 个按钮`; return; }
+          const btn = { text, kind };
+          if (kind === 'url') {
+            btn.url = url;
+            if (style) btn.style = style;
+          }
+          btns.push(btn);
+        });
+        if (btns.length) matrix.push(btns);
+      });
+      if (bad) {
+        showToast(`${bad}不完整：文字必填，普通链接的地址以 https:// 或 tg:// 开头`, 'error');
+        return null;
+      }
+      return matrix;
+    }
+    // 预览：webapp 按钮按默认色显示并标注“打开面板”；url 按钮按 style 着色（与 tplButtonsPreviewHtml 同一套颜色）。
+    function bwButtonsPreviewHtml(matrix) {
+      const rows = (Array.isArray(matrix) ? matrix : [])
+        .map(row => (Array.isArray(row) ? row : [row]).filter(b => b && b.text))
+        .filter(r => r.length);
+      if (!rows.length) return '';
+      const cls = {
+        danger: 'bg-[var(--md-error-container)] border-[var(--md-error)] text-[var(--md-error)]',
+        success: 'bg-[var(--md-success-container)] border-[var(--md-success)] text-[var(--md-success)]',
+        primary: 'bg-[var(--md-primary-container)] border-[var(--md-primary)] text-[var(--md-primary)]'
+      };
+      const def = 'bg-[var(--md-surface-container-low)] border-[var(--md-outline-variant)] text-[var(--md-primary)]';
+      return rows.map(r => {
+        const btns = r.map(b => {
+          if (b.kind === 'webapp') {
+            return `<div class="flex-1 min-w-0 py-1.5 px-2 rounded-lg border text-center font-medium truncate ${def}">📱 ${escapeHtml(b.text || '')} · 打开面板</div>`;
+          }
+          const c = cls[b.style] || def;
+          return `<div class="flex-1 min-w-0 py-1.5 px-2 rounded-lg border text-center font-medium truncate ${c}">🔗 ${escapeHtml(b.text || b.url || '')} ↗</div>`;
+        }).join('');
+        return `<div class="mt-1.5 flex gap-1.5">${btns}</div>`;
+      }).join('');
+    }
+    function bwPreviewButtons() {
+      const matrix = [];
+      document.querySelectorAll('#bw-buttons-editor .bw-btn-row').forEach(row => {
+        const btns = [];
+        row.querySelectorAll('.bw-btn-slot').forEach(slot => {
+          const text = (slot.querySelector('.bw-btn-text').value || '').trim();
+          const kind = slot.querySelector('.bw-btn-kind').value || 'webapp';
+          const url = (slot.querySelector('.bw-btn-url').value || '').trim();
+          const style = slot.querySelector('.bw-btn-style').value || '';
+          if (!text && !url) return;
+          const btn = { text, kind };
+          if (kind === 'url') { btn.url = url; if (style) btn.style = style; }
+          btns.push(btn);
+        });
+        if (btns.length) matrix.push(btns);
+      });
+      return matrix;
+    }
+    function bwUpdatePreview() {
+      const el = document.getElementById('bw-content-preview');
+      const area = document.getElementById('bw-content');
+      if (!el || !area) return;
+      const html = (area.value || '').replace(/\n/g, '<br/>');
+      el.innerHTML = (html || '<span class="text-[var(--md-on-surface-variant)]">（空）</span>') + bwButtonsPreviewHtml(bwPreviewButtons());
+    }
+    function bwInitEditor() {
+      const area = document.getElementById('bw-content');
+      if (!area) return;
+      area.addEventListener('input', bwUpdatePreview);
+      area.addEventListener('select', bwSaveSel);
+      area.addEventListener('keyup', bwSaveSel);
+      area.addEventListener('mouseup', bwSaveSel);
+      document.querySelectorAll('.bw-toolbar').forEach(bar => {
+        bar.addEventListener('mousedown', (e) => { if (e.target.closest('button')) e.preventDefault(); });
+      });
+      const btnEditor = document.getElementById('bw-buttons-editor');
+      if (btnEditor) {
+        btnEditor.addEventListener('input', bwUpdatePreview);
+        btnEditor.addEventListener('change', bwUpdatePreview);
+        btnEditor.addEventListener('click', (e) => { if (e.target.closest('.bw-btn-remove')) setTimeout(bwUpdatePreview, 0); });
+      }
+      bwUpdatePreview();
+    }
+    function populateBotWelcomeForm() {
+      const w = appState.botWelcome || {};
+      const area = document.getElementById('bw-content');
+      if (!area) return;
+      area.value = w.text || '🎉 欢迎使用本机器人！\n\n点击下方按钮打开群管可视化控制面板。';
+      bwRenderButtonRows(w.buttons && w.buttons.length ? w.buttons : [[{ text: '🎛️ 打开群管可视化控制面板 (Mini App)', kind: 'webapp' }]]);
+      bwUpdatePreview();
+    }
+    async function saveBotWelcome() {
+      const text = (document.getElementById('bw-content').value || '').trim();
+      if (!text) { showToast('欢迎语正文不能为空', 'error'); return; }
+      const balance = checkTplTagsBalanced(text);
+      if (!balance.ok) {
+        showToast(balance.reason === 'open'
+          ? `标签 <${balance.tag}> 未闭合，请补上 </${balance.tag}> 再保存`
+          : `多余的闭合标签 </${balance.tag}>，请检查后再保存`, 'error');
+        return;
+      }
+      const buttons = bwCollectButtons();
+      if (buttons === null) return;
+      try {
+        await apiRequest('POST', '/api/bot-welcome', { text, buttons });
+      } catch (err) {
+        showToast(err && err.message ? err.message : '保存失败', 'error');
+        return;
+      }
+      await refreshAllGroupData();
+      renderHubCards();
+      showToast('机器人欢迎语已保存');
+    }
+
+    // ==================== v4.1 底部菜单（bot-menu） ====================
+    // 一个按钮位：文字 + 动作下拉（open_panel 打开面板 / reply_text 回复固定文字 / add_to_group 加入群组）+ 回复文字（仅 reply_text 时显示）。
+    function bmButtonSlotEl(btn) {
+      const slot = document.createElement('div');
+      slot.className = 'bm-btn-slot flex items-center gap-1.5 flex-wrap';
+      slot.innerHTML = `
+        <input type="text" placeholder="按钮文字" class="bm-btn-text flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]" />
+        <select class="bm-btn-action px-1.5 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]">
+          <option value="open_panel">打开面板</option>
+          <option value="reply_text">回复固定文字</option>
+          <option value="add_to_group">加入群组</option>
+        </select>
+        <input type="text" placeholder="回复文字（点按钮后机器人发的文字）" class="bm-btn-payload flex-[2] min-w-0 px-2 py-1.5 rounded-lg bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)] text-xs text-[var(--md-on-surface)]" />
+        <button type="button" class="bm-btn-slot-remove px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-error-container)] text-[11px] text-[var(--md-error)]" title="去掉这个并排按钮">✕</button>`;
+      slot.querySelector('.bm-btn-text').value = btn.text || '';
+      slot.querySelector('.bm-btn-action').value = ['open_panel', 'reply_text', 'add_to_group'].includes(btn.action) ? btn.action : 'reply_text';
+      slot.querySelector('.bm-btn-payload').value = btn.payload || '';
+      const syncAction = () => {
+        const a = slot.querySelector('.bm-btn-action').value;
+        slot.querySelector('.bm-btn-payload').classList.toggle('hidden', a !== 'reply_text');
+        bmUpdatePreview();
+      };
+      slot.querySelector('.bm-btn-action').addEventListener('change', syncAction);
+      slot.querySelector('.bm-btn-slot-remove').addEventListener('click', () => {
+        const row = slot.closest('.bm-btn-row');
+        slot.remove();
+        bmRefreshButtonRowControls(row);
+        bmUpdatePreview();
+      });
+      syncAction();
+      return slot;
+    }
+    function bmRefreshButtonRowControls(row) {
+      if (!row) return;
+      const n = row.querySelectorAll('.bm-btn-slot').length;
+      row.querySelector('.bm-btn-sidebyside').style.display = n >= 2 ? 'none' : '';
+      row.querySelectorAll('.bm-btn-slot-remove').forEach(b => { b.style.display = n >= 2 ? '' : 'none'; });
+    }
+    function bmButtonRowEl(buttons) {
+      const row = document.createElement('div');
+      row.className = 'bm-btn-row space-y-1.5 p-2 rounded-xl bg-[var(--md-surface-container-low)] border border-[var(--md-outline-variant)]';
+      row.innerHTML = `
+        <div class="bm-btn-slots space-y-1.5"></div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button type="button" class="bm-btn-sidebyside px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-success)]" title="在这行再加一个并排按钮">＋ 并排</button>
+          <button type="button" class="bm-btn-up px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="整行上移">↑ 上移</button>
+          <button type="button" class="bm-btn-down px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-surface-container-high)] text-[11px] text-[var(--md-on-surface)]" title="整行下移">↓ 下移</button>
+          <button type="button" class="bm-btn-remove px-2 py-1 rounded-lg bg-[var(--md-surface-container-low)] hover:bg-[var(--md-error-container)] text-[11px] text-[var(--md-error)]" title="删除这一行">✕ 删除本行</button>
+        </div>`;
+      const slots = row.querySelector('.bm-btn-slots');
+      const list = (Array.isArray(buttons) && buttons.length ? buttons : [{ text: '', action: 'reply_text', payload: '' }]).slice(0, 2);
+      list.forEach(b => slots.appendChild(bmButtonSlotEl(b || {})));
+      row.querySelector('.bm-btn-sidebyside').addEventListener('click', () => {
+        if (slots.querySelectorAll('.bm-btn-slot').length >= 2) return;
+        slots.appendChild(bmButtonSlotEl({ text: '', action: 'reply_text', payload: '' }));
+        bmRefreshButtonRowControls(row);
+        bmUpdatePreview();
+        slots.querySelectorAll('.bm-btn-text')[slots.children.length - 1].focus();
+      });
+      row.querySelector('.bm-btn-up').addEventListener('click', () => {
+        if (row.previousElementSibling) { row.parentNode.insertBefore(row, row.previousElementSibling); bmUpdatePreview(); }
+      });
+      row.querySelector('.bm-btn-down').addEventListener('click', () => {
+        if (row.nextElementSibling) { row.parentNode.insertBefore(row.nextElementSibling, row); bmUpdatePreview(); }
+      });
+      row.querySelector('.bm-btn-remove').addEventListener('click', () => { row.remove(); bmUpdatePreview(); });
+      bmRefreshButtonRowControls(row);
+      return row;
+    }
+    function bmRenderButtonRows(buttons) {
+      const editor = document.getElementById('bm-buttons-editor');
+      if (!editor) return;
+      editor.innerHTML = '';
+      const rows = [];
+      (Array.isArray(buttons) ? buttons : []).forEach(row => {
+        if (Array.isArray(row)) rows.push(row.filter(b => b && typeof b === 'object'));
+        else if (row && typeof row === 'object') rows.push([row]);
+      });
+      if (!rows.length) rows.push([{ text: '', action: 'reply_text', payload: '' }]);
+      rows.forEach(r => editor.appendChild(bmButtonRowEl(r)));
+    }
+    function bmAddButtonRow() {
+      const editor = document.getElementById('bm-buttons-editor');
+      if (!editor) return;
+      editor.appendChild(bmButtonRowEl([{ text: '', action: 'reply_text', payload: '' }]));
+      const inputs = editor.querySelectorAll('.bm-btn-row:last-child .bm-btn-text');
+      if (inputs.length) inputs[0].focus();
+      bmUpdatePreview();
+    }
+    // 收集按钮：[[{text, action, payload}]]；返回 null 表示校验未过（已 toast），调用方中止保存。
+    function bmCollectButtons() {
+      const matrix = [];
+      let bad = '';
+      document.querySelectorAll('#bm-buttons-editor .bm-btn-row').forEach((row, idx) => {
+        const btns = [];
+        row.querySelectorAll('.bm-btn-slot').forEach((slot, sidx) => {
+          const text = (slot.querySelector('.bm-btn-text').value || '').trim();
+          const action = slot.querySelector('.bm-btn-action').value || 'reply_text';
+          const payload = (slot.querySelector('.bm-btn-payload').value || '').trim();
+          if (!text && !payload) return;
+          if (!text) { bad = `第 ${idx + 1} 行第 ${sidx + 1} 个按钮`; return; }
+          if (action === 'reply_text' && !payload) { bad = `第 ${idx + 1} 行第 ${sidx + 1} 个按钮`; return; }
+          btns.push({ text, action, payload: action === 'reply_text' ? payload : '' });
+        });
+        if (btns.length) matrix.push(btns);
+      });
+      if (bad) {
+        showToast(`${bad}不完整：文字必填，“回复固定文字”还要填回复内容`, 'error');
+        return null;
+      }
+      return matrix;
+    }
+    function bmPreviewButtons() {
+      const matrix = [];
+      document.querySelectorAll('#bm-buttons-editor .bm-btn-row').forEach(row => {
+        const btns = [];
+        row.querySelectorAll('.bm-btn-slot').forEach(slot => {
+          const text = (slot.querySelector('.bm-btn-text').value || '').trim();
+          const action = slot.querySelector('.bm-btn-action').value || 'reply_text';
+          if (!text) return;
+          btns.push({ text, action });
+        });
+        if (btns.length) matrix.push(btns);
+      });
+      return matrix;
+    }
+    // 键盘布局实时预览：按矩阵渲染成灰底圆角按钮，一行 1–2 个并排。
+    function bmUpdatePreview() {
+      const el = document.getElementById('bm-preview');
+      if (!el) return;
+      const enabled = document.getElementById('bm-enabled');
+      const rows = bmPreviewButtons();
+      if (enabled && !enabled.checked) {
+        el.innerHTML = '<span class="text-[var(--md-on-surface-variant)]">菜单已停用，左下角不显示菜单按钮。</span>';
+        return;
+      }
+      if (!rows.length) {
+        el.innerHTML = '<span class="text-[var(--md-on-surface-variant)]">（暂无按钮，先在上面添加一行）</span>';
+        return;
+      }
+      el.innerHTML = rows.map(r => {
+        const btns = r.map(b => `<div class="flex-1 min-w-0 py-2 px-2 rounded-lg bg-[var(--md-surface-container-high)] border border-[var(--md-outline-variant)] text-center font-medium truncate text-[var(--md-on-surface)]">${escapeHtml(b.text)}${b.action === 'open_panel' ? ' 📱' : ''}</div>`).join('');
+        return `<div class="mt-1.5 flex gap-1.5">${btns}</div>`;
+      }).join('');
+    }
+    function bmInitEditor() {
+      const enabled = document.getElementById('bm-enabled');
+      if (enabled) enabled.addEventListener('change', bmUpdatePreview);
+      const btnEditor = document.getElementById('bm-buttons-editor');
+      if (btnEditor) {
+        btnEditor.addEventListener('input', bmUpdatePreview);
+        btnEditor.addEventListener('change', bmUpdatePreview);
+        btnEditor.addEventListener('click', (e) => { if (e.target.closest('.bm-btn-remove')) setTimeout(bmUpdatePreview, 0); });
+      }
+      bmUpdatePreview();
+    }
+    function populateBotMenuForm() {
+      const m = appState.botMenu || {};
+      const enabled = document.getElementById('bm-enabled');
+      if (!enabled) return;
+      enabled.checked = !!m.enabled;
+      bmRenderButtonRows(m.buttons && m.buttons.length ? m.buttons : [[{ text: '➕ Bot 加入群组', action: 'add_to_group', payload: '' }], [{ text: '测试1', action: 'reply_text', payload: '测试' }, { text: '测试2', action: 'reply_text', payload: '测试' }], [{ text: '测试3', action: 'reply_text', payload: '测试' }, { text: '测试4', action: 'reply_text', payload: '测试' }]]);
+      bmUpdatePreview();
+    }
+    async function saveBotMenu() {
+      const enabled = document.getElementById('bm-enabled').checked;
+      const buttons = bmCollectButtons();
+      if (buttons === null) return;
+      try {
+        await apiRequest('POST', '/api/bot-menu', { enabled, buttons });
+      } catch (err) {
+        showToast(err && err.message ? err.message : '保存失败', 'error');
+        return;
+      }
+      await refreshAllGroupData();
+      renderHubCards();
+      showToast(enabled ? '底部菜单已保存并启用' : '底部菜单已保存并停用');
     }
 
     function populateWelcomeForm() {
