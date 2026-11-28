@@ -590,14 +590,6 @@ DEFAULT_BOT_WELCOME_BUTTONS = [
 ]
 DEFAULT_BOT_MENU_BUTTONS = [
     [{"text": "➕ Bot 加入群组", "action": "add_to_group", "payload": ""}],
-    [
-        {"text": "测试1", "action": "reply_text", "payload": "测试"},
-        {"text": "测试2", "action": "reply_text", "payload": "测试"},
-    ],
-    [
-        {"text": "测试3", "action": "reply_text", "payload": "测试"},
-        {"text": "测试4", "action": "reply_text", "payload": "测试"},
-    ],
 ]
 
 

@@ -2050,7 +2050,7 @@
       lockdownKeywords: {},
       bottomButtons: {},
       botWelcome: { id: 1, text: '🎉 欢迎使用本机器人！\n\n点击下方按钮打开群管可视化控制面板。', buttons: [[{ text: '🎛️ 打开群管可视化控制面板 (Mini App)', kind: 'webapp' }]] },
-      botMenu: { id: 1, enabled: 1, buttons: [[{ text: '➕ Bot 加入群组', action: 'add_to_group', payload: '' }], [{ text: '测试1', action: 'reply_text', payload: '测试' }, { text: '测试2', action: 'reply_text', payload: '测试' }], [{ text: '测试3', action: 'reply_text', payload: '测试' }, { text: '测试4', action: 'reply_text', payload: '测试' }]] }
+      botMenu: { id: 1, enabled: 1, buttons: [[{ text: '➕ Bot 加入群组', action: 'add_to_group', payload: '' }]] }
     };
 
     const appState = {
@@ -4212,7 +4212,7 @@
       const enabled = document.getElementById('bm-enabled');
       if (!enabled) return;
       enabled.checked = !!m.enabled;
-      bmRenderButtonRows(m.buttons && m.buttons.length ? m.buttons : [[{ text: '➕ Bot 加入群组', action: 'add_to_group', payload: '' }], [{ text: '测试1', action: 'reply_text', payload: '测试' }, { text: '测试2', action: 'reply_text', payload: '测试' }], [{ text: '测试3', action: 'reply_text', payload: '测试' }, { text: '测试4', action: 'reply_text', payload: '测试' }]]);
+      bmRenderButtonRows(m.buttons && m.buttons.length ? m.buttons : [[{ text: '➕ Bot 加入群组', action: 'add_to_group', payload: '' }]]);
       bmUpdatePreview();
     }
     async function saveBotMenu() {

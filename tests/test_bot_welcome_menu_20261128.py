@@ -10,7 +10,7 @@
 - POST 鉴权：8449446199 和 5853665560 放行，其他人 403（欢迎语/菜单都测）；
 - 标签配对检查：未闭合 / 多余闭合 -> 400，配对（含 pre/a/tg-spoiler 嵌套）-> 200；
 - 按钮矩阵 webapp/url 生成：webapp 用 WEBAPP_BASE_URL、url 带 style；
-- 菜单默认 5 个按钮：第一个是“➕ Bot 加入群组”（add_to_group），下面 2×2 测试按钮；
+- 菜单默认只有 1 个按钮：单独一行全宽的“➕ Bot 加入群组”（add_to_group）；
 - 菜单匹配：reply_text 回 payload、open_panel 回 web_app 按钮、
   add_to_group 回 https://t.me/<用户名>?startgroup 内联 URL 按钮、
   非菜单文字 / 命令文本 / 菜单停用时不拦截；
@@ -148,17 +148,11 @@ async def main():
                       "kind": "webapp"}]])
     ok &= check("默认菜单启用", m is not None and int(m["enabled"]) == 1)
     menu_default = json.loads(m["buttons_json"]) if m else []
-    ok &= check("菜单默认 5 个按钮", len(_flat_buttons(menu_default)) == 5)
-    ok &= check("菜单默认第一行单独一个加群按钮",
-                len(menu_default) == 3 and len(menu_default[0]) == 1
+    ok &= check("菜单默认只有 1 个按钮", len(_flat_buttons(menu_default)) == 1)
+    ok &= check("菜单默认唯一按钮就是加群按钮",
+                len(menu_default) == 1 and len(menu_default[0]) == 1
                 and menu_default[0][0]["text"] == "➕ Bot 加入群组"
                 and menu_default[0][0]["action"] == "add_to_group")
-    ok &= check("菜单默认下面 2×2 测试按钮",
-                len(menu_default[1]) == 2 and len(menu_default[2]) == 2
-                and [b["text"] for b in _flat_buttons(menu_default[1:])] ==
-                ["测试1", "测试2", "测试3", "测试4"]
-                and all(b["action"] == "reply_text" and b["payload"] == "测试"
-                        for b in _flat_buttons(menu_default[1:])))
     ok &= check("db.py 默认菜单常量与库里默认行一致",
                 DEFAULT_BOT_MENU_BUTTONS == menu_default)
 
@@ -171,8 +165,8 @@ async def main():
                 and r.json()["bot_welcome"]["text"] == EXPECTED_WELCOME_TEXT)
     r = client.get("/api/bot-menu")
     ok &= check("GET /api/bot-menu 200", r.status_code == 200)
-    ok &= check("GET 菜单默认 5 个按钮",
-                len(_flat_buttons(r.json()["bot_menu"]["buttons"])) == 5
+    ok &= check("GET 菜单默认只有加群 1 个按钮",
+                len(_flat_buttons(r.json()["bot_menu"]["buttons"])) == 1
                 and r.json()["bot_menu"]["enabled"] == 1)
 
     # 3. POST 鉴权：两个号放行，其他人 403（欢迎语 + 菜单）
@@ -258,9 +252,9 @@ async def main():
                 r.status_code == 200
                 and r.json()["bot_welcome"]["text"] == EXPECTED_WELCOME_TEXT)
     r = client.get("/api/bot-menu")
-    ok &= check("删行后 GET 菜单仍 200 且回默认 5 按钮",
+    ok &= check("删行后 GET 菜单仍 200 且回默认 1 个按钮",
                 r.status_code == 200
-                and len(_flat_buttons(r.json()["bot_menu"]["buttons"])) == 5)
+                and len(_flat_buttons(r.json()["bot_menu"]["buttons"])) == 1)
     await init_db()  # 恢复默认行
     async with get_db() as db:
         w = await db.fetchrow("SELECT text FROM bot_welcome_settings WHERE id = ?",
@@ -303,7 +297,7 @@ async def main():
     menu_texts = [b.text for row in menu_kb.keyboard for b in row] if menu_kb else []
     ok &= check("菜单键盘含加群按钮在第一位",
                 menu_texts and menu_texts[0] == "➕ Bot 加入群组"
-                and len(menu_texts) == 5)
+                and len(menu_texts) == 1)
     ok &= check("菜单键盘 resize 且非一次性",
                 menu_kb is not None and menu_kb.resize_keyboard is True
                 and menu_kb.one_time_keyboard is False)
@@ -362,6 +356,16 @@ async def main():
     from app.bot.handlers.llm_chat import check_bot_menu_reply
 
     bot = FakeBot(username="Zeus_GAI")
+    # reply_text 用例：先把菜单写成含测试按钮的夹具（默认菜单只有加群按钮）
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE bot_menu_settings SET enabled = 1, buttons_json = ?"
+            " WHERE id = ?",
+            (json.dumps([
+                [{"text": "➕ Bot 加入群组", "action": "add_to_group",
+                  "payload": ""}],
+                [{"text": "测试1", "action": "reply_text", "payload": "测试"}],
+            ], ensure_ascii=False), 1))
     msg = FakeMessage("测试1", "private")
     hit = await check_bot_menu_reply(msg, bot)
     ok &= check("reply_text 命中返回 True", hit is True)
@@ -433,6 +437,16 @@ async def main():
     # 12. 管道集成：私聊菜单文字在 LLM 之前被拦截
     from app.bot.handlers.llm_chat import group_message_pipeline
 
+    # 管道用例同样先写含测试按钮的夹具菜单
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE bot_menu_settings SET enabled = 1, buttons_json = ?"
+            " WHERE id = ?",
+            (json.dumps([
+                [{"text": "➕ Bot 加入群组", "action": "add_to_group",
+                  "payload": ""}],
+                [{"text": "测试1", "action": "reply_text", "payload": "测试"}],
+            ], ensure_ascii=False), 1))
     msg = FakeMessage("测试1", "private")
     await group_message_pipeline(msg, bot)
     ok &= check("管道里私聊菜单文字只回 payload 就结束",
